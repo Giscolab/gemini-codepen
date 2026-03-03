@@ -585,6 +585,17 @@ function applySearchReplace(currentCode, responseText, marker) {
 
     const searchIndex = newCode.indexOf(searchText);
     if (searchIndex !== -1) {
+      const escapedSearch = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const occurrences = (newCode.match(new RegExp(escapedSearch, 'g')) || []).length;
+      if (occurrences !== 1) {
+        const editorName = marker.replace('UPDATE_', '');
+        const errorMsg = `Ambiguous match in ${editorName}`;
+        console.warn(errorMsg);
+        errors.push(errorMsg);
+        addSystemMessage(`Ambiguous match in ${editorName}`);
+        continue;
+      }
+
       // Find which lines were affected
       const beforeSearch = newCode.substring(0, searchIndex);
       const startLine = beforeSearch.split('\n').length - 1;

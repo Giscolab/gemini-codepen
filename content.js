@@ -11,6 +11,7 @@ const pendingMessages = new Map();
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
   const message = event.data;
+  if (!message || typeof message !== 'object') return;
   if (message.source !== 'chrome-code-inject') return;
 
   const resolve = pendingMessages.get(message.id);
@@ -32,13 +33,13 @@ function sendToMainWorld(action, data = {}) {
       ...data
     }, '*');
 
-    // Timeout after 1 second
+    // Timeout after 3 seconds
     setTimeout(() => {
       if (pendingMessages.has(id)) {
         pendingMessages.delete(id);
         resolve(null);
       }
-    }, 1000);
+    }, 3000);
   });
 }
 
