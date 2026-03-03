@@ -43,7 +43,7 @@ const API = {
 
           // Scroll to the first changed line
           const firstLine = Math.min(...changedLines);
-          cm.scrollIntoView({line: firstLine, ch: 0}, 100);
+          cm.scrollIntoView({line: firstLine, ch: 0}, 200);
 
           // Highlight each changed line
           changedLines.forEach(lineNum => {
