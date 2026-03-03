@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chrome Code</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <div id="app">
+    <div id="header">
+      <div id="status" class="status-disconnected">Not connected</div>
+      <select id="ai-provider">
+        <option value="claude">Claude</option>
+        <option value="gemini">Gemini</option>
+        <option value="local">Local</option>
+      </select>
+    </div>
+
+    <div id="settings-panel" class="hidden">
+      <div class="settings-content">
+        <div class="settings-header">
+          <h3 id="settings-title">Claude Settings</h3>
+          <button id="close-settings" class="close-btn">×</button>
+        </div>
+        <label for="api-key">API Key:</label>
+        <input type="password" id="api-key" placeholder="Enter API key...">
+        <div class="settings-footer">
+          <button id="save-settings">Save</button>
+          <p class="help-text" id="api-key-help">Get your API key from the <a href="https://console.anthropic.com/" target="_blank">Anthropic Console</a></p>
+        </div>
+      </div>
+    </div>
+
+    <div id="chat-container">
+      <div id="messages"></div>
+    </div>
+
+    <div id="input-container">
+      <textarea
+        id="user-input"
+        placeholder="Ask me to read or modify the CodePen code..."
+        rows="3"
+      ></textarea>
+      <div id="input-actions">
+        <button id="settings-btn" title="Settings">⚙️</button>
+        <button id="send-btn">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/diff.min.js"></script>
+  <script src="js/marked.min.js"></script>
+  <script src="js/agents/Agent.js"></script>
+  <script src="js/agents/ClaudeAgent.js"></script>
+  <script src="js/agents/GeminiAgent.js"></script>
+  <script src="js/agents/LocalAgent.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>
