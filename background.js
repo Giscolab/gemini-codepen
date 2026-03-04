@@ -4,6 +4,14 @@
 // Keep track of active connections
 const connections = new Map();
 
+const DEEPSEEK_CHAT_COMPLETIONS_URL = 'https://api.deepseek.com/chat/completions';
+const MISTRAL_CHAT_COMPLETIONS_URL = 'https://api.mistral.ai/v1/chat/completions';
+const PERPLEXITY_CHAT_COMPLETIONS_URL = 'https://api.perplexity.ai/chat/completions';
+const XAI_CHAT_COMPLETIONS_URL = 'https://api.x.ai/v1/chat/completions';
+const TOGETHER_CHAT_COMPLETIONS_URL = 'https://api.together.xyz/v1/chat/completions';
+const GROQ_CHAT_COMPLETIONS_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
 
 const MODEL_ENDPOINTS = {
   'gpt-4o': { api: 'openai', model: 'gpt-4o' },
@@ -13,18 +21,18 @@ const MODEL_ENDPOINTS = {
   'claude-opus': { api: 'anthropic', model: 'claude-opus-4-1-20250805' },
   'gemini-free': { api: 'gemini', model: 'gemini-2.5-flash' },
   'gemini-pro': { api: 'gemini', model: 'gemini-2.5-pro' },
-  'deepseek-coder': { api: 'openai_compat', url: 'https://api.deepseek.com/chat/completions', model: 'deepseek-coder' },
-  'deepseek-v3.2': { api: 'openai_compat', url: 'https://api.deepseek.com/chat/completions', model: 'deepseek-chat' },
-  'mistral-large': { api: 'openai_compat', url: 'https://api.mistral.ai/v1/chat/completions', model: 'mistral-large-latest' },
-  magistral: { api: 'openai_compat', url: 'https://api.mistral.ai/v1/chat/completions', model: 'magistral-medium-latest' },
-  'perplexity-pro': { api: 'openai_compat', url: 'https://api.perplexity.ai/chat/completions', model: 'sonar-pro' },
-  'perplexity-deep-research': { api: 'openai_compat', url: 'https://api.perplexity.ai/chat/completions', model: 'sonar-deep-research' },
-  'grok-reasoning': { api: 'openai_compat', url: 'https://api.x.ai/v1/chat/completions', model: 'grok-3-mini' },
-  'together-mixtral': { api: 'openai_compat', url: 'https://api.together.xyz/v1/chat/completions', model: 'mistralai/Mixtral-8x7B-Instruct-v0.1' },
-  'groq-llama': { api: 'openai_compat', url: 'https://api.groq.com/openai/v1/chat/completions', model: 'llama-3.3-70b-versatile' },
-  'qwen-2.5-coder': { api: 'openai_compat', url: 'https://openrouter.ai/api/v1/chat/completions', model: 'qwen/qwen-2.5-coder-32b-instruct' },
-  'mistral-small': { api: 'openai_compat', url: 'https://openrouter.ai/api/v1/chat/completions', model: 'mistralai/mistral-small-3.2-24b-instruct:free' },
-  'k2.5': { api: 'openai_compat', url: 'https://openrouter.ai/api/v1/chat/completions', model: 'moonshotai/kimi-k2:free' }
+  'deepseek-coder': { api: 'openai_compat', url: DEEPSEEK_CHAT_COMPLETIONS_URL, model: 'deepseek-coder' },
+  'deepseek-v3.2': { api: 'openai_compat', url: DEEPSEEK_CHAT_COMPLETIONS_URL, model: 'deepseek-chat' },
+  'mistral-large': { api: 'openai_compat', url: MISTRAL_CHAT_COMPLETIONS_URL, model: 'mistral-large-latest' },
+  magistral: { api: 'openai_compat', url: MISTRAL_CHAT_COMPLETIONS_URL, model: 'magistral-medium-latest' },
+  'perplexity-pro': { api: 'openai_compat', url: PERPLEXITY_CHAT_COMPLETIONS_URL, model: 'sonar-pro' },
+  'perplexity-deep-research': { api: 'openai_compat', url: PERPLEXITY_CHAT_COMPLETIONS_URL, model: 'sonar-deep-research' },
+  'grok-reasoning': { api: 'openai_compat', url: XAI_CHAT_COMPLETIONS_URL, model: 'grok-3-mini' },
+  'together-mixtral': { api: 'openai_compat', url: TOGETHER_CHAT_COMPLETIONS_URL, model: 'mistralai/Mixtral-8x7B-Instruct-v0.1' },
+  'groq-llama': { api: 'openai_compat', url: GROQ_CHAT_COMPLETIONS_URL, model: 'llama-3.3-70b-versatile' },
+  'qwen-2.5-coder': { api: 'openai_compat', url: OPENROUTER_CHAT_COMPLETIONS_URL, model: 'qwen/qwen-2.5-coder-32b-instruct' },
+  'mistral-small': { api: 'openai_compat', url: OPENROUTER_CHAT_COMPLETIONS_URL, model: 'mistralai/mistral-small-3.2-24b-instruct:free' },
+  'k2.5': { api: 'openai_compat', url: OPENROUTER_CHAT_COMPLETIONS_URL, model: 'moonshotai/kimi-k2:free' }
 };
 
 async function callOpenAICompatible({ url, apiKey, model, systemPrompt, messages, extraHeaders = {} }) {

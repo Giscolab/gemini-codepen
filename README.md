@@ -123,6 +123,15 @@ Protocole de patch imposé:
   - signalement des `SEARCH` introuvables,
   - application partielle des remplacements valides.
 
+
+## Configuration API
+
+Permissions + endpoints:
+
+- Pour Grok/xAI, l'extension utilise `https://api.x.ai/*` dans `host_permissions` et la constante `XAI_CHAT_COMPLETIONS_URL` côté service worker.
+- À date, la documentation fournisseur expose `api.x.ai` comme hostname API; aucun hostname alternatif n'est ajouté ici tant qu'il n'est pas officiellement documenté.
+- **Note:** si le domaine fournisseur change, mettre à jour **à la fois** `host_permissions` (dans `manifest.json`) et la constante d'endpoint (dans `background.js`).
+
 ## Modèle de sécurité
 
 Permissions (`manifest.json`):
