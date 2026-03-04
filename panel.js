@@ -11,7 +11,10 @@ const closeSettingsBtn = document.getElementById('close-settings');
 const apiKeyInput = document.getElementById('api-key');
 const saveSettingsBtn = document.getElementById('save-settings');
 const statusElement = document.getElementById('status');
-const aiProviderSelect = document.getElementById('ai-provider');
+const providerTabs = document.querySelectorAll('.provider-tab');
+const providerGroups = document.querySelectorAll('.provider-group');
+const freeProviderSelect = document.getElementById('free-provider');
+const paidProviderSelect = document.getElementById('paid-provider');
 const apiKeyHelp = document.getElementById('api-key-help');
 const settingsTitle = document.getElementById('settings-title');
 const apiKeyLabel = document.querySelector('#settings-panel label');
@@ -30,6 +33,7 @@ let isPortConnected = false;
 let agent = null;
 let assistantMode = 'edit';
 let refactorOnly = false;
+let selectedModel = '';
 
 // Provider configuration
 const PROVIDER_NAMES = {
@@ -43,6 +47,55 @@ const getApiKey = () => {
   const apiKeys = { 'gemini': geminiApiKey, 'claude': claudeApiKey };
   return apiKeys[aiProvider];
 };
+
+// Map UI model selections to currently supported providers
+const mapModelToProvider = (model) => {
+  if (!model) return 'claude';
+  if (model.startsWith('local-')) return 'local';
+  if (model.startsWith('gemini-')) return 'gemini';
+  return 'claude';
+};
+
+function showProviderTab(tab) {
+  providerTabs.forEach((button) => {
+    const isActive = button.dataset.tab === tab;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-selected', String(isActive));
+  });
+
+  providerGroups.forEach((group) => {
+    const isActive = group.dataset.group === tab;
+    group.classList.toggle('active', isActive);
+    group.classList.toggle('hidden', !isActive);
+  });
+}
+
+async function switchProviderFromModel(model) {
+  selectedModel = model;
+  await chrome.storage.local.set({ selectedModel: model });
+  const nextProvider = mapModelToProvider(model);
+
+  if (nextProvider === aiProvider) {
+    return;
+  }
+
+  aiProvider = nextProvider;
+  await chrome.storage.local.set({ aiProvider: aiProvider });
+  updateApiKeyHelp();
+
+  if (aiProvider === 'local') {
+    apiKeyInput.value = '';
+    createAgent();
+  } else {
+    const currentKey = getApiKey();
+    apiKeyInput.value = currentKey || '';
+    if (currentKey) {
+      createAgent();
+    } else {
+      agent = null;
+    }
+  }
+}
 
 // Initialize connection to background script
 function initConnection() {
@@ -106,13 +159,28 @@ function initConnection() {
 
 // Load saved API key
 async function loadSettings() {
-  const result = await chrome.storage.local.get(['claudeApiKey', 'geminiApiKey', 'aiProvider']);
+  const result = await chrome.storage.local.get(['claudeApiKey', 'geminiApiKey', 'aiProvider', 'selectedModel']);
   if (result.claudeApiKey) claudeApiKey = result.claudeApiKey;
   if (result.geminiApiKey) geminiApiKey = result.geminiApiKey;
   if (result.aiProvider) {
     aiProvider = result.aiProvider;
-    aiProviderSelect.value = aiProvider;
   }
+
+  if (result.selectedModel) {
+    selectedModel = result.selectedModel;
+    if (freeProviderSelect.querySelector(`option[value="${selectedModel}"]`)) {
+      freeProviderSelect.value = selectedModel;
+      showProviderTab('free');
+    } else if (paidProviderSelect.querySelector(`option[value="${selectedModel}"]`)) {
+      paidProviderSelect.value = selectedModel;
+      showProviderTab('paid');
+    }
+  } else {
+    const shouldUseFreeTab = aiProvider === 'local' || aiProvider === 'gemini';
+    showProviderTab(shouldUseFreeTab ? 'free' : 'paid');
+    selectedModel = shouldUseFreeTab ? freeProviderSelect.value : paidProviderSelect.value;
+  }
+
   updateApiKeyHelp();
   const currentKey = getApiKey();
   if (currentKey) {
@@ -778,25 +846,20 @@ closeSettingsBtn.addEventListener('click', () => {
 
 saveSettingsBtn.addEventListener('click', saveSettings);
 
-aiProviderSelect.addEventListener('change', async () => {
-  aiProvider = aiProviderSelect.value;
-  await chrome.storage.local.set({ aiProvider: aiProvider });
-  updateApiKeyHelp();
+providerTabs.forEach((button) => {
+  button.addEventListener('click', () => {
+    showProviderTab(button.dataset.tab);
+  });
+});
 
-  if (aiProvider === 'local') {
-    apiKeyInput.value = '';
-    createAgent();
-  } else {
-    const currentKey = getApiKey();
-    apiKeyInput.value = currentKey;
-    if (currentKey) {
-      createAgent();
-    } else {
-      agent = null;
-    }
-  }
+freeProviderSelect.addEventListener('change', async () => {
+  await switchProviderFromModel(freeProviderSelect.value);
+  addSystemMessage(`Modèle sélectionné : ${freeProviderSelect.options[freeProviderSelect.selectedIndex].text}`);
+});
 
-  addSystemMessage(`Switched to ${PROVIDER_NAMES[aiProvider]}`);
+paidProviderSelect.addEventListener('change', async () => {
+  await switchProviderFromModel(paidProviderSelect.value);
+  addSystemMessage(`Modèle sélectionné : ${paidProviderSelect.options[paidProviderSelect.selectedIndex].text}`);
 });
 
 // Initialize
