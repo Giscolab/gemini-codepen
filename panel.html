@@ -1,52 +1,52 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chrome Code</title>
+  <title>Code Chrome</title>
   <link rel="stylesheet" href="panel.css">
 </head>
 <body>
   <div id="app">
-    <div id="header">
-      <div id="status" class="status-disconnected">Not connected</div>
-      <select id="ai-provider">
+    <header id="header" role="banner">
+      <p id="status" class="status-disconnected" role="status" aria-live="polite">Non connecté</p>
+      <select id="ai-provider" aria-label="Fournisseur IA">
         <option value="claude">Claude</option>
         <option value="gemini">Gemini</option>
         <option value="local">Local</option>
       </select>
-    </div>
+    </header>
 
-    <div id="settings-panel" class="hidden">
+    <aside id="settings-panel" class="hidden" aria-label="Paramètres">
       <div class="settings-content">
-        <div class="settings-header">
-          <h3 id="settings-title">Claude Settings</h3>
-          <button id="close-settings" class="close-btn">×</button>
-        </div>
-        <label for="api-key">API Key:</label>
-        <input type="password" id="api-key" placeholder="Enter API key...">
+        <header class="settings-header">
+          <h3 id="settings-title">Paramètres Claude</h3>
+          <button id="close-settings" class="close-btn" aria-label="Fermer les paramètres">×</button>
+        </header>
+        <label for="api-key">Clé API :</label>
+        <input type="password" id="api-key" placeholder="Saisir la clé API...">
         <div class="settings-footer">
-          <button id="save-settings">Save</button>
-          <p class="help-text" id="api-key-help">Get your API key from the <a href="https://console.anthropic.com/" target="_blank">Anthropic Console</a></p>
+          <button id="save-settings">Enregistrer</button>
+          <p class="help-text" id="api-key-help">Obtenez votre clé API depuis la <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">console Anthropic</a></p>
         </div>
       </div>
-    </div>
+    </aside>
 
-    <div id="chat-container">
-      <div id="messages"></div>
-    </div>
+    <main id="chat-container" role="main">
+      <section id="messages" aria-label="Conversation"></section>
+    </main>
 
-    <div id="input-container">
+    <footer id="input-container">
       <textarea
         id="user-input"
-        placeholder="Ask me to read or modify the CodePen code..."
+        placeholder="Demandez-moi de lire ou modifier le code CodePen..."
         rows="3"
       ></textarea>
       <div id="input-actions">
-        <button id="settings-btn" title="Settings">⚙️</button>
-        <button id="send-btn">Send</button>
+        <button id="settings-btn" title="Paramètres" aria-label="Ouvrir les paramètres">⚙️</button>
+        <button id="send-btn">Envoyer</button>
       </div>
-    </div>
+    </footer>
   </div>
 
   <script src="js/diff.min.js"></script>
