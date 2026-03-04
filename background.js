@@ -137,7 +137,10 @@ chrome.runtime.onConnect.addListener((port) => {
         }
 
         const data = await response.json();
-        const text = data.candidates[0].content.parts[0].text;
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) {
+          throw new Error('Empty Gemini response');
+        }
         port.postMessage({
           type: 'GEMINI_RESPONSE',
           response: text
