@@ -2,6 +2,20 @@
 // It has access to the page's JavaScript including CodeMirror instances
 // Communicates with content.js (isolated world) via window.postMessage
 
+const recentConsoleErrors = [];
+const MAX_CONSOLE_ERRORS = 10;
+
+window.addEventListener('error', (event) => {
+  recentConsoleErrors.push(`${event.message} @ ${event.filename || 'unknown'}:${event.lineno || 0}`);
+  if (recentConsoleErrors.length > MAX_CONSOLE_ERRORS) recentConsoleErrors.shift();
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = typeof event.reason === 'string' ? event.reason : (event.reason?.message || 'Unhandled promise rejection');
+  recentConsoleErrors.push(`Unhandled rejection: ${reason}`);
+  if (recentConsoleErrors.length > MAX_CONSOLE_ERRORS) recentConsoleErrors.shift();
+});
+
 const API = {
   getCode(editorType) {
     const box = document.querySelector(`.box-${editorType}`);
@@ -77,6 +91,10 @@ const API = {
     const css = this.getCode('css');
     const js = this.getCode('js');
     return html !== null || css !== null || js !== null;
+  },
+
+  getConsoleErrors() {
+    return [...recentConsoleErrors];
   }
 };
 
@@ -102,6 +120,9 @@ window.addEventListener('message', (event) => {
       break;
     case 'setCode':
       response.result = API.setCode(message.editorType, message.code, message.changedLines);
+      break;
+    case 'getConsoleErrors':
+      response.result = API.getConsoleErrors();
       break;
   }
 

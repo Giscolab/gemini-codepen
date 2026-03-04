@@ -37,6 +37,18 @@
     </main>
 
     <footer id="input-container">
+      <div id="assistant-controls" aria-label="Options assistant">
+        <button id="mode-btn" type="button">Mode: Edit</button>
+        <label class="toggle-option">
+          <input id="refactor-only" type="checkbox">
+          Refactor only
+        </label>
+        <div id="scope-selector" aria-label="Scopes de modification">
+          <label><input type="checkbox" value="html" checked>HTML</label>
+          <label><input type="checkbox" value="css" checked>CSS</label>
+          <label><input type="checkbox" value="js" checked>JS</label>
+        </div>
+      </div>
       <textarea
         id="user-input"
         placeholder="Demandez-moi de lire ou modifier le code CodePen..."

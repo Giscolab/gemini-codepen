@@ -55,6 +55,10 @@ async function setCode(editorType, code, changedLines) {
   return await sendToMainWorld('setCode', { editorType, code, changedLines });
 }
 
+async function getConsoleErrors() {
+  return await sendToMainWorld('getConsoleErrors');
+}
+
 // Listen for messages from the background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'GET_CODE') {
@@ -74,6 +78,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     });
     return true; // Will respond asynchronously
+  }
+
+  if (message.type === 'GET_CONSOLE_ERRORS') {
+    getConsoleErrors().then(errors => {
+      sendResponse({
+        success: true,
+        errors: errors || []
+      });
+    });
+    return true;
   }
 
   return true;
