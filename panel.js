@@ -22,8 +22,7 @@ const modeBtn = document.getElementById('mode-btn');
 const refactorOnlyInput = document.getElementById('refactor-only');
 const scopeInputs = document.querySelectorAll('#scope-selector input[type=\"checkbox\"]');
 
-let claudeApiKey = '';
-let geminiApiKey = '';
+let apiKeys = {};
 let aiProvider = 'claude';
 let conversationHistory = [];
 let backgroundPort = null;
@@ -36,24 +35,70 @@ let refactorOnly = false;
 let selectedModel = '';
 
 // Provider configuration
-const PROVIDER_NAMES = {
-  'claude': 'Claude',
-  'gemini': 'Gemini',
-  'local': 'Local'
+const MODEL_CONFIG = {
+  'local-ollama': { provider: 'local', keyId: null, label: 'Ollama (Local)' },
+  'local-lmstudio': { provider: 'local', keyId: null, label: 'LM Studio' },
+  'local-vllm': { provider: 'local', keyId: null, label: 'vLLM' },
+  'gemini-free': { provider: 'gemini', keyId: 'gemini', label: 'Gemini Free' },
+  'qwen-2.5-coder': { provider: 'openrouter', keyId: 'openrouter', label: 'Qwen 2.5 Coder' },
+  'deepseek-coder': { provider: 'deepseek', keyId: 'deepseek', label: 'DeepSeek Coder' },
+  'deepseek-v3.2': { provider: 'deepseek', keyId: 'deepseek', label: 'DeepSeek V3.2' },
+  'mistral-small': { provider: 'openrouter', keyId: 'openrouter', label: 'Mistral Small' },
+  'groq-llama': { provider: 'groq', keyId: 'groq', label: 'Groq LLaMA' },
+  'gpt-4o': { provider: 'openai', keyId: 'openai', label: 'GPT-4o' },
+  'gpt-4.1': { provider: 'openai', keyId: 'openai', label: 'GPT-4.1' },
+  'gpt-deep-research': { provider: 'openai', keyId: 'openai', label: 'GPT Deep Research' },
+  'claude-sonnet': { provider: 'claude', keyId: 'claude', label: 'Claude Sonnet' },
+  'claude-opus': { provider: 'claude', keyId: 'claude', label: 'Claude Opus' },
+  'gemini-pro': { provider: 'gemini', keyId: 'gemini', label: 'Gemini Pro' },
+  'mistral-large': { provider: 'mistral', keyId: 'mistral', label: 'Mistral Large' },
+  magistral: { provider: 'mistral', keyId: 'mistral', label: 'Magistral' },
+  'perplexity-pro': { provider: 'perplexity', keyId: 'perplexity', label: 'Perplexity Pro' },
+  'perplexity-deep-research': { provider: 'perplexity', keyId: 'perplexity', label: 'Perplexity Deep Research' },
+  'grok-reasoning': { provider: 'xai', keyId: 'xai', label: 'Grok Reasoning' },
+  'k2.5': { provider: 'openrouter', keyId: 'openrouter', label: 'K2.5' },
+  'together-mixtral': { provider: 'together', keyId: 'together', label: 'Mixtral (Together)' }
 };
 
-// Helper to get current API key
+const KEY_HELP = {
+  claude: 'Clé Anthropic',
+  gemini: 'Clé Google AI Studio',
+  openai: 'Clé OpenAI',
+  mistral: 'Clé Mistral',
+  perplexity: 'Clé Perplexity',
+  xai: 'Clé xAI',
+  groq: 'Clé Groq',
+  together: 'Clé Together.ai',
+  deepseek: 'Clé DeepSeek',
+  openrouter: 'Clé OpenRouter'
+};
+
+const HELP_LINKS = {
+  claude: 'https://console.anthropic.com/',
+  gemini: 'https://aistudio.google.com/apikey',
+  openai: 'https://platform.openai.com/api-keys',
+  mistral: 'https://console.mistral.ai/api-keys/',
+  perplexity: 'https://www.perplexity.ai/settings/api',
+  xai: 'https://console.x.ai/',
+  groq: 'https://console.groq.com/keys',
+  together: 'https://api.together.xyz/settings/api-keys',
+  deepseek: 'https://platform.deepseek.com/api_keys',
+  openrouter: 'https://openrouter.ai/keys'
+};
+
+const getCurrentModelConfig = () => MODEL_CONFIG[selectedModel] || null;
+
 const getApiKey = () => {
-  const apiKeys = { 'gemini': geminiApiKey, 'claude': claudeApiKey };
-  return apiKeys[aiProvider];
+  const modelConfig = getCurrentModelConfig();
+  if (!modelConfig || !modelConfig.keyId) return '';
+  return apiKeys[modelConfig.keyId] || '';
 };
 
 // Map UI model selections to currently supported providers
 const mapModelToProvider = (model) => {
-  if (!model) return 'claude';
-  if (model.startsWith('local-')) return 'local';
-  if (model.startsWith('gemini-')) return 'gemini';
-  return 'claude';
+  const modelConfig = MODEL_CONFIG[model];
+  if (!modelConfig) return 'claude';
+  return modelConfig.provider === 'local' ? 'local' : 'claude';
 };
 
 function showProviderTab(tab) {
@@ -74,27 +119,42 @@ async function switchProviderFromModel(model) {
   selectedModel = model;
   await chrome.storage.local.set({ selectedModel: model });
   const nextProvider = mapModelToProvider(model);
-
-  if (nextProvider === aiProvider) {
-    return;
-  }
-
   aiProvider = nextProvider;
   await chrome.storage.local.set({ aiProvider: aiProvider });
   updateApiKeyHelp();
+  apiKeyInput.value = getApiKey();
+  createAgent();
+}
 
-  if (aiProvider === 'local') {
-    apiKeyInput.value = '';
-    createAgent();
-  } else {
-    const currentKey = getApiKey();
-    apiKeyInput.value = currentKey || '';
-    if (currentKey) {
-      createAgent();
-    } else {
-      agent = null;
-    }
+function createModelAgent() {
+  const modelConfig = getCurrentModelConfig();
+  if (!modelConfig) {
+    agent = null;
+    return;
   }
+
+  if (modelConfig.provider === 'local') {
+    agent = new LocalAgent();
+    if (backgroundPort) agent.setBackgroundPort(backgroundPort);
+    return;
+  }
+
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    agent = null;
+    return;
+  }
+
+  agent = new Agent({
+    apiKey,
+    responseType: 'MODEL_RESPONSE',
+    callType: 'CALL_MODEL',
+    timeout: 45000
+  });
+
+  agent.model = selectedModel;
+
+  if (backgroundPort) agent.setBackgroundPort(backgroundPort);
 }
 
 // Initialize connection to background script
@@ -159,9 +219,10 @@ function initConnection() {
 
 // Load saved API key
 async function loadSettings() {
-  const result = await chrome.storage.local.get(['claudeApiKey', 'geminiApiKey', 'aiProvider', 'selectedModel']);
-  if (result.claudeApiKey) claudeApiKey = result.claudeApiKey;
-  if (result.geminiApiKey) geminiApiKey = result.geminiApiKey;
+  const result = await chrome.storage.local.get(['apiKeys', 'claudeApiKey', 'geminiApiKey', 'aiProvider', 'selectedModel']);
+  if (result.apiKeys && typeof result.apiKeys === 'object') apiKeys = result.apiKeys;
+  if (result.claudeApiKey && !apiKeys.claude) apiKeys.claude = result.claudeApiKey;
+  if (result.geminiApiKey && !apiKeys.gemini) apiKeys.gemini = result.geminiApiKey;
   if (result.aiProvider) {
     aiProvider = result.aiProvider;
   }
@@ -182,63 +243,48 @@ async function loadSettings() {
   }
 
   updateApiKeyHelp();
-  const currentKey = getApiKey();
-  if (currentKey) {
-    apiKeyInput.value = currentKey;
-    createAgent();
-  } else if (aiProvider === 'local') {
-    // Local provider doesn't need API key
-    createAgent();
-  }
+  apiKeyInput.value = getApiKey();
+  createAgent();
 }
 
-// Create agent based on selected provider
+// Create agent based on selected model
 function createAgent() {
-  if (aiProvider === 'local') {
-    agent = new LocalAgent();
-  } else if (aiProvider === 'gemini') {
-    agent = new GeminiAgent(geminiApiKey);
-  } else {
-    agent = new ClaudeAgent(claudeApiKey);
-  }
-  if (backgroundPort) agent.setBackgroundPort(backgroundPort);
+  createModelAgent();
 }
 
-// Update API key help text based on provider
+// Update API key help text based on selected model
 function updateApiKeyHelp() {
-  if (aiProvider === 'local') {
+  const modelConfig = getCurrentModelConfig();
+  if (!modelConfig || modelConfig.provider === 'local') {
     settingsTitle.textContent = 'Local Settings';
     apiKeyInput.style.display = 'none';
     apiKeyLabel.style.display = 'none';
     saveSettingsBtn.style.display = 'none';
-
-    // Set default text immediately
     apiKeyHelp.innerHTML = 'Uses built-in Chrome AI.';
 
-    // Check if local AI is available
     if (backgroundPort && isPortConnected) {
       backgroundPort.postMessage({ type: 'CHECK_LOCAL_AI' });
-    } else {
-      apiKeyHelp.innerHTML = 'Uses built-in Chrome AI.<br><br>Enable these flags:<br><code>chrome://flags/#prompt-api-for-gemini-nano</code><br><code>chrome://flags/#optimization-guide-on-device-model</code>';
     }
-  } else if (aiProvider === 'gemini') {
-    apiKeyInput.style.display = '';
-    apiKeyLabel.style.display = '';
-    saveSettingsBtn.style.display = '';
-    settingsTitle.textContent = 'Gemini Settings';
-    apiKeyHelp.innerHTML = 'Get your API key from <a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a>';
-  } else {
-    apiKeyInput.style.display = '';
-    apiKeyLabel.style.display = '';
-    saveSettingsBtn.style.display = '';
-    settingsTitle.textContent = 'Claude Settings';
-    apiKeyHelp.innerHTML = 'Get your API key from the <a href="https://console.anthropic.com/" target="_blank">Anthropic Console</a>';
+    return;
   }
+
+  apiKeyInput.style.display = '';
+  apiKeyLabel.style.display = '';
+  saveSettingsBtn.style.display = '';
+
+  const keyLabel = KEY_HELP[modelConfig.provider] || 'Clé API';
+  settingsTitle.textContent = `${modelConfig.label} Settings`;
+  apiKeyLabel.textContent = `${keyLabel} :`;
+  const link = HELP_LINKS[modelConfig.provider];
+  apiKeyHelp.innerHTML = link
+    ? `Obtenez votre clé depuis <a href="${link}" target="_blank" rel="noopener noreferrer">le tableau de bord fournisseur</a>`
+    : 'Saisissez votre clé API pour ce fournisseur.';
 }
 
 // Save API key
 async function saveSettings() {
-  if (aiProvider === 'local') {
+  const modelConfig = getCurrentModelConfig();
+  if (!modelConfig || modelConfig.provider === 'local') {
     createAgent();
     addSystemMessage('Settings saved (Local)');
     settingsPanel.classList.add('hidden');
@@ -246,20 +292,17 @@ async function saveSettings() {
   }
 
   const newKey = apiKeyInput.value.trim();
-  if (newKey) {
-    if (aiProvider === 'gemini') {
-      geminiApiKey = newKey;
-      await chrome.storage.local.set({ geminiApiKey: geminiApiKey });
-    } else {
-      claudeApiKey = newKey;
-      await chrome.storage.local.set({ claudeApiKey: claudeApiKey });
-    }
-    createAgent();
-    addSystemMessage(`Settings saved (${PROVIDER_NAMES[aiProvider]})`);
-    settingsPanel.classList.add('hidden');
-  } else {
+  if (!newKey) {
     addSystemMessage('Please enter a valid API key');
+    return;
   }
+
+  const keyId = modelConfig.keyId;
+  apiKeys[keyId] = newKey;
+  await chrome.storage.local.set({ apiKeys });
+  createAgent();
+  addSystemMessage(`Settings saved (${modelConfig.label})`);
+  settingsPanel.classList.add('hidden');
 }
 
 // Update connection status
@@ -504,8 +547,8 @@ async function sendMessage() {
   if (!message) return;
 
   if (!agent) {
-    const providerName = PROVIDER_NAMES[aiProvider];
-    const message = aiProvider === 'local'
+    const providerName = getCurrentModelConfig()?.label || 'provider';
+    const message = getCurrentModelConfig()?.provider === 'local'
       ? 'Local AI not available. Please check Chrome flags.'
       : `Please set your ${providerName} API key in settings`;
     addSystemMessage(message);
@@ -519,7 +562,7 @@ async function sendMessage() {
   sendBtn.disabled = true;
 
   // Add thinking indicator
-  const thinkingMessage = addThinkingMessage(PROVIDER_NAMES[aiProvider]);
+  const thinkingMessage = addThinkingMessage(getCurrentModelConfig()?.label || 'AI');
 
   // Refresh code before sending
   await new Promise(resolve => {

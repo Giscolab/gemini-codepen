@@ -74,6 +74,10 @@ class Agent {
 					messageData.apiKey = this.apiKey;
 				}
 
+				if ( this.model ) {
+					messageData.model = this.model;
+				}
+
 				this.backgroundPort.postMessage( messageData );
 
 			} catch ( error ) {
