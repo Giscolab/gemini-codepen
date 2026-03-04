@@ -4,6 +4,107 @@
 // Keep track of active connections
 const connections = new Map();
 
+
+const MODEL_ENDPOINTS = {
+  'gpt-4o': { api: 'openai', model: 'gpt-4o' },
+  'gpt-4.1': { api: 'openai', model: 'gpt-4.1' },
+  'gpt-deep-research': { api: 'openai', model: 'o4-mini' },
+  'claude-sonnet': { api: 'anthropic', model: 'claude-sonnet-4-5-20250929' },
+  'claude-opus': { api: 'anthropic', model: 'claude-opus-4-1-20250805' },
+  'gemini-free': { api: 'gemini', model: 'gemini-2.5-flash' },
+  'gemini-pro': { api: 'gemini', model: 'gemini-2.5-pro' },
+  'deepseek-coder': { api: 'openai_compat', url: 'https://api.deepseek.com/chat/completions', model: 'deepseek-coder' },
+  'deepseek-v3.2': { api: 'openai_compat', url: 'https://api.deepseek.com/chat/completions', model: 'deepseek-chat' },
+  'mistral-large': { api: 'openai_compat', url: 'https://api.mistral.ai/v1/chat/completions', model: 'mistral-large-latest' },
+  magistral: { api: 'openai_compat', url: 'https://api.mistral.ai/v1/chat/completions', model: 'magistral-medium-latest' },
+  'perplexity-pro': { api: 'openai_compat', url: 'https://api.perplexity.ai/chat/completions', model: 'sonar-pro' },
+  'perplexity-deep-research': { api: 'openai_compat', url: 'https://api.perplexity.ai/chat/completions', model: 'sonar-deep-research' },
+  'grok-reasoning': { api: 'openai_compat', url: 'https://api.x.ai/v1/chat/completions', model: 'grok-3-mini' },
+  'together-mixtral': { api: 'openai_compat', url: 'https://api.together.xyz/v1/chat/completions', model: 'mistralai/Mixtral-8x7B-Instruct-v0.1' },
+  'groq-llama': { api: 'openai_compat', url: 'https://api.groq.com/openai/v1/chat/completions', model: 'llama-3.3-70b-versatile' },
+  'qwen-2.5-coder': { api: 'openai_compat', url: 'https://openrouter.ai/api/v1/chat/completions', model: 'qwen/qwen-2.5-coder-32b-instruct' },
+  'mistral-small': { api: 'openai_compat', url: 'https://openrouter.ai/api/v1/chat/completions', model: 'mistralai/mistral-small-3.2-24b-instruct:free' },
+  'k2.5': { api: 'openai_compat', url: 'https://openrouter.ai/api/v1/chat/completions', model: 'moonshotai/kimi-k2:free' }
+};
+
+async function callOpenAICompatible({ url, apiKey, model, systemPrompt, messages, extraHeaders = {} }) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+      ...extraHeaders
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...messages
+      ],
+      temperature: 0.2
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error?.message || error.message || 'API request failed');
+  }
+
+  const data = await response.json();
+  const text = data?.choices?.[0]?.message?.content;
+  if (!text) throw new Error('Empty model response');
+  return text;
+}
+
+async function callGeminiModel({ apiKey, model, systemPrompt, messages }) {
+  const geminiMessages = messages.map(msg => ({
+    role: msg.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: msg.content }]
+  }));
+
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: geminiMessages,
+      generationConfig: { maxOutputTokens: 8192 }
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error?.message || 'API request failed');
+  }
+
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Empty Gemini response');
+  return text;
+}
+
+async function callAnthropicModel({ apiKey, model, systemPrompt, messages }) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({ model, max_tokens: 4096, system: systemPrompt, messages })
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error?.message || 'API request failed');
+  }
+
+  const data = await response.json();
+  return data?.content?.[0]?.text;
+}
+
+
 // Handle connections from DevTools panels
 chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener(async (message) => {
@@ -152,6 +253,51 @@ chrome.runtime.onConnect.addListener((port) => {
         });
       }
     }
+
+    if (message.type === 'CALL_MODEL') {
+      try {
+        const modelConfig = MODEL_ENDPOINTS[message.model];
+        if (!modelConfig) {
+          throw new Error(`Unsupported model: ${message.model}`);
+        }
+
+        const chatMessages = (message.messages || []).filter((msg) => msg.role === 'user' || msg.role === 'assistant');
+        let responseText = '';
+
+        if (modelConfig.api === 'anthropic') {
+          responseText = await callAnthropicModel({
+            apiKey: message.apiKey,
+            model: modelConfig.model,
+            systemPrompt: message.systemPrompt,
+            messages: chatMessages
+          });
+        } else if (modelConfig.api === 'gemini') {
+          responseText = await callGeminiModel({
+            apiKey: message.apiKey,
+            model: modelConfig.model,
+            systemPrompt: message.systemPrompt,
+            messages: chatMessages
+          });
+        } else {
+          const extraHeaders = modelConfig.url.includes('openrouter.ai')
+            ? { 'HTTP-Referer': 'https://codepen.io/', 'X-Title': 'Chrome Code Extension' }
+            : {};
+          responseText = await callOpenAICompatible({
+            url: modelConfig.url || 'https://api.openai.com/v1/chat/completions',
+            apiKey: message.apiKey,
+            model: modelConfig.model,
+            systemPrompt: message.systemPrompt,
+            messages: chatMessages,
+            extraHeaders
+          });
+        }
+
+        port.postMessage({ type: 'MODEL_RESPONSE', response: responseText });
+      } catch (error) {
+        port.postMessage({ type: 'ERROR', error: error.message });
+      }
+    }
+
 
     if (message.type === 'CHECK_LOCAL_AI') {
       // Check if Prompt API is available

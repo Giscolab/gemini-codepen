@@ -10,11 +10,92 @@
   <div id="app">
     <header id="header" role="banner">
       <p id="status" class="status-disconnected" role="status" aria-live="polite">Non connecté</p>
-      <select id="ai-provider" aria-label="Fournisseur IA">
-        <option value="claude">Claude</option>
-        <option value="gemini">Gemini</option>
-        <option value="local">Local</option>
-      </select>
+      <div id="provider-section" aria-label="Fournisseurs IA">
+        <div id="provider-tabs" role="tablist">
+          <button class="provider-tab active" data-tab="free" role="tab" aria-selected="true">
+            🟢 Gratuit / Open
+          </button>
+          <button class="provider-tab" data-tab="paid" role="tab" aria-selected="false">
+            💳 API Payantes
+          </button>
+        </div>
+
+        <div id="provider-groups">
+          <div class="provider-group active" data-group="free">
+            <label for="free-provider">Modèle gratuit :</label>
+            <select id="free-provider" aria-label="Fournisseur gratuit">
+              <optgroup label="Local (100% gratuit)">
+                <option value="local-ollama">Ollama (Local)</option>
+                <option value="local-lmstudio">LM Studio</option>
+                <option value="local-vllm">vLLM</option>
+              </optgroup>
+
+              <optgroup label="Google">
+                <option value="gemini-free">Gemini Free</option>
+              </optgroup>
+
+              <optgroup label="Qwen">
+                <option value="qwen-2.5-coder">Qwen 2.5 Coder</option>
+              </optgroup>
+
+              <optgroup label="DeepSeek">
+                <option value="deepseek-coder">DeepSeek Coder</option>
+                <option value="deepseek-v3.2">DeepSeek V3.2</option>
+              </optgroup>
+
+              <optgroup label="Mistral Open">
+                <option value="mistral-small">Mistral Small</option>
+              </optgroup>
+
+              <optgroup label="Groq (Free tier)">
+                <option value="groq-llama">Groq LLaMA</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <div class="provider-group hidden" data-group="paid">
+            <label for="paid-provider">Modèle payant :</label>
+            <select id="paid-provider" aria-label="Fournisseur payant">
+              <optgroup label="OpenAI">
+                <option value="gpt-4o">GPT-4o (Code)</option>
+                <option value="gpt-4.1">GPT-4.1</option>
+                <option value="gpt-deep-research">GPT Deep Research</option>
+              </optgroup>
+
+              <optgroup label="Anthropic">
+                <option value="claude-sonnet">Claude Sonnet</option>
+                <option value="claude-opus">Claude Opus</option>
+              </optgroup>
+
+              <optgroup label="Google">
+                <option value="gemini-pro">Gemini Pro</option>
+              </optgroup>
+
+              <optgroup label="Mistral">
+                <option value="mistral-large">Mistral Large</option>
+                <option value="magistral">Magistral</option>
+              </optgroup>
+
+              <optgroup label="Perplexity">
+                <option value="perplexity-pro">Perplexity Pro</option>
+                <option value="perplexity-deep-research">Perplexity Deep Research</option>
+              </optgroup>
+
+              <optgroup label="xAI - Grok">
+                <option value="grok-reasoning">Grok Reasoning</option>
+              </optgroup>
+
+              <optgroup label="K2">
+                <option value="k2.5">K2.5</option>
+              </optgroup>
+
+              <optgroup label="Together.ai">
+                <option value="together-mixtral">Mixtral (Together)</option>
+              </optgroup>
+            </select>
+          </div>
+        </div>
+      </div>
     </header>
 
     <aside id="settings-panel" class="hidden" aria-label="Paramètres">
