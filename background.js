@@ -56,6 +56,90 @@ async function callOpenAICompatible({ url, apiKey, model, systemPrompt, messages
   return text;
 }
 
+async function callOpenAIModel({ apiKey, model, systemPrompt, messages, url = 'https://api.openai.com/v1/chat/completions' }) {
+  return callOpenAICompatible({
+    url,
+    apiKey,
+    model,
+    systemPrompt,
+    messages
+  });
+}
+
+async function callMistralModel({ apiKey, model, systemPrompt, messages, url = 'https://api.mistral.ai/v1/chat/completions' }) {
+  return callOpenAICompatible({
+    url,
+    apiKey,
+    model,
+    systemPrompt,
+    messages
+  });
+}
+
+async function callDeepSeekModel({ apiKey, model, systemPrompt, messages, url = 'https://api.deepseek.com/chat/completions' }) {
+  return callOpenAICompatible({
+    url,
+    apiKey,
+    model,
+    systemPrompt,
+    messages
+  });
+}
+
+async function callGroqModel({ apiKey, model, systemPrompt, messages, url = 'https://api.groq.com/openai/v1/chat/completions' }) {
+  return callOpenAICompatible({
+    url,
+    apiKey,
+    model,
+    systemPrompt,
+    messages
+  });
+}
+
+async function callPerplexityModel({ apiKey, model, systemPrompt, messages, url = 'https://api.perplexity.ai/chat/completions' }) {
+  return callOpenAICompatible({
+    url,
+    apiKey,
+    model,
+    systemPrompt,
+    messages
+  });
+}
+
+async function callTogetherModel({ apiKey, model, systemPrompt, messages, url = 'https://api.together.xyz/v1/chat/completions' }) {
+  return callOpenAICompatible({
+    url,
+    apiKey,
+    model,
+    systemPrompt,
+    messages
+  });
+}
+
+async function callOpenRouterModel({ apiKey, model, systemPrompt, messages, url = 'https://openrouter.ai/api/v1/chat/completions' }) {
+  return callOpenAICompatible({
+    url,
+    apiKey,
+    model,
+    systemPrompt,
+    messages,
+    extraHeaders: {
+      'HTTP-Referer': 'https://codepen.io/',
+      'X-Title': 'Chrome Code Extension'
+    }
+  });
+}
+
+async function callXAIModel({ apiKey, model, systemPrompt, messages, url = 'https://api.x.ai/v1/chat/completions' }) {
+  return callOpenAICompatible({
+    url,
+    apiKey,
+    model,
+    systemPrompt,
+    messages
+  });
+}
+
 async function callGeminiModel({ apiKey, model, systemPrompt, messages }) {
   const geminiMessages = messages.map(msg => ({
     role: msg.role === 'assistant' ? 'model' : 'user',
@@ -102,6 +186,61 @@ async function callAnthropicModel({ apiKey, model, systemPrompt, messages }) {
 
   const data = await response.json();
   return data?.content?.[0]?.text;
+}
+
+const OPENAI_COMPAT_PROVIDER_BY_URL = {
+  'https://api.deepseek.com/chat/completions': 'deepseek',
+  'https://api.mistral.ai/v1/chat/completions': 'mistral',
+  'https://api.perplexity.ai/chat/completions': 'perplexity',
+  'https://api.x.ai/v1/chat/completions': 'xai',
+  'https://api.together.xyz/v1/chat/completions': 'together',
+  'https://api.groq.com/openai/v1/chat/completions': 'groq',
+  'https://openrouter.ai/api/v1/chat/completions': 'openrouter'
+};
+
+function resolveProviderFromModelConfig(modelConfig) {
+  const directProviderMap = {
+    anthropic: 'anthropic',
+    gemini: 'gemini',
+    openai: 'openai'
+  };
+
+  if (directProviderMap[modelConfig.api]) {
+    return directProviderMap[modelConfig.api];
+  }
+
+  if (modelConfig.api === 'openai_compat') {
+    return OPENAI_COMPAT_PROVIDER_BY_URL[modelConfig.url] || 'openai';
+  }
+
+  return modelConfig.api;
+}
+
+async function callProvider({ provider, apiKey, model, systemPrompt, messages, url }) {
+  switch (provider) {
+    case 'anthropic':
+      return callAnthropicModel({ apiKey, model, systemPrompt, messages });
+    case 'gemini':
+      return callGeminiModel({ apiKey, model, systemPrompt, messages });
+    case 'openai':
+      return callOpenAIModel({ apiKey, model, systemPrompt, messages, url });
+    case 'mistral':
+      return callMistralModel({ apiKey, model, systemPrompt, messages, url });
+    case 'deepseek':
+      return callDeepSeekModel({ apiKey, model, systemPrompt, messages, url });
+    case 'groq':
+      return callGroqModel({ apiKey, model, systemPrompt, messages, url });
+    case 'perplexity':
+      return callPerplexityModel({ apiKey, model, systemPrompt, messages, url });
+    case 'together':
+      return callTogetherModel({ apiKey, model, systemPrompt, messages, url });
+    case 'openrouter':
+      return callOpenRouterModel({ apiKey, model, systemPrompt, messages, url });
+    case 'xai':
+      return callXAIModel({ apiKey, model, systemPrompt, messages, url });
+    default:
+      throw new Error(`Unsupported provider: ${provider}`);
+  }
 }
 
 
@@ -262,35 +401,15 @@ chrome.runtime.onConnect.addListener((port) => {
         }
 
         const chatMessages = (message.messages || []).filter((msg) => msg.role === 'user' || msg.role === 'assistant');
-        let responseText = '';
-
-        if (modelConfig.api === 'anthropic') {
-          responseText = await callAnthropicModel({
-            apiKey: message.apiKey,
-            model: modelConfig.model,
-            systemPrompt: message.systemPrompt,
-            messages: chatMessages
-          });
-        } else if (modelConfig.api === 'gemini') {
-          responseText = await callGeminiModel({
-            apiKey: message.apiKey,
-            model: modelConfig.model,
-            systemPrompt: message.systemPrompt,
-            messages: chatMessages
-          });
-        } else {
-          const extraHeaders = modelConfig.url.includes('openrouter.ai')
-            ? { 'HTTP-Referer': 'https://codepen.io/', 'X-Title': 'Chrome Code Extension' }
-            : {};
-          responseText = await callOpenAICompatible({
-            url: modelConfig.url || 'https://api.openai.com/v1/chat/completions',
-            apiKey: message.apiKey,
-            model: modelConfig.model,
-            systemPrompt: message.systemPrompt,
-            messages: chatMessages,
-            extraHeaders
-          });
-        }
+        const provider = resolveProviderFromModelConfig(modelConfig);
+        const responseText = await callProvider({
+          provider,
+          apiKey: message.apiKey,
+          model: modelConfig.model,
+          systemPrompt: message.systemPrompt,
+          messages: chatMessages,
+          url: modelConfig.url
+        });
 
         port.postMessage({ type: 'MODEL_RESPONSE', response: responseText });
       } catch (error) {
