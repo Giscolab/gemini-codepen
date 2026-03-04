@@ -24,6 +24,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
 }
 
 #header h2 {
@@ -48,18 +49,51 @@ body {
   color: #f48771;
 }
 
-#ai-provider {
+.hidden {
+  display: none !important;
+}
+
+#provider-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 320px;
+}
+
+#provider-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.provider-tab {
   background: #1e1e1e;
+  border: 1px solid #3e3e42;
   color: #d4d4d4;
-  border: none;
-  border-radius: 3px;
-  padding: 4px 8px;
+  border-radius: 4px;
   font-size: 11px;
+  padding: 4px 8px;
   cursor: pointer;
 }
 
-#ai-provider:focus {
-  outline: none;
+.provider-tab.active {
+  border-color: #0e639c;
+  background: #094771;
+}
+
+.provider-group label {
+  display: block;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.provider-group select {
+  width: 100%;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border: 1px solid #3e3e42;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
 }
 
 #settings-panel {
