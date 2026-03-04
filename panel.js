@@ -1,5 +1,5 @@
 // DevTools panel script
-// Handles UI interactions and communication with AI providers (Claude, Gemini, Local)
+// Handles UI interactions and communication with AI providers (Cloud, Local)
 
 const messagesContainer = document.getElementById('messages');
 const chatContainer = document.getElementById('chat-container');
@@ -52,7 +52,7 @@ const MODEL_CONFIG = {
   'claude-opus': { provider: 'claude', keyId: 'claude', label: 'Claude Opus' },
   'gemini-pro': { provider: 'gemini', keyId: 'gemini', label: 'Gemini Pro' },
   'mistral-large': { provider: 'mistral', keyId: 'mistral', label: 'Mistral Large' },
-  magistral: { provider: 'mistral', keyId: 'mistral', label: 'Magistral' },
+  'magistral': { provider: 'mistral', keyId: 'mistral', label: 'Magistral' },
   'perplexity-pro': { provider: 'perplexity', keyId: 'perplexity', label: 'Perplexity Pro' },
   'perplexity-deep-research': { provider: 'perplexity', keyId: 'perplexity', label: 'Perplexity Deep Research' },
   'grok-reasoning': { provider: 'xai', keyId: 'xai', label: 'Grok Reasoning' },
