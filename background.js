@@ -30,6 +30,24 @@ chrome.runtime.onConnect.addListener((port) => {
       }
     }
 
+
+    if (message.type === 'GET_CONSOLE_ERRORS') {
+      try {
+        const response = await chrome.tabs.sendMessage(message.tabId, {
+          type: 'GET_CONSOLE_ERRORS'
+        });
+        port.postMessage({
+          type: 'CONSOLE_ERRORS',
+          errors: response?.errors || []
+        });
+      } catch (error) {
+        port.postMessage({
+          type: 'CONSOLE_ERRORS',
+          errors: []
+        });
+      }
+    }
+
     if (message.type === 'UPDATE_CODE') {
       // Forward code update to content script
       try {

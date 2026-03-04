@@ -15,6 +15,9 @@ const aiProviderSelect = document.getElementById('ai-provider');
 const apiKeyHelp = document.getElementById('api-key-help');
 const settingsTitle = document.getElementById('settings-title');
 const apiKeyLabel = document.querySelector('#settings-panel label');
+const modeBtn = document.getElementById('mode-btn');
+const refactorOnlyInput = document.getElementById('refactor-only');
+const scopeInputs = document.querySelectorAll('#scope-selector input[type=\"checkbox\"]');
 
 let claudeApiKey = '';
 let geminiApiKey = '';
@@ -25,6 +28,8 @@ let tabId = chrome.devtools.inspectedWindow.tabId;
 let currentCode = { html: '', css: '', js: '' };
 let isPortConnected = false;
 let agent = null;
+let assistantMode = 'edit';
+let refactorOnly = false;
 
 // Provider configuration
 const PROVIDER_NAMES = {
@@ -352,19 +357,67 @@ function addSystemMessage(content) {
 }
 
 // Add thinking indicator
-function addThinkingMessage() {
+function addThinkingMessage(providerName = 'AI') {
   const messageDiv = document.createElement('div');
   messageDiv.className = 'message message-assistant';
 
   const contentDiv = document.createElement('div');
   contentDiv.className = 'message-content thinking';
-  contentDiv.innerHTML = '<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>';
+  contentDiv.innerHTML = `<span class="thinking-label">Reading current code... Calling ${providerName}...</span> <span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>`;
 
   messageDiv.appendChild(contentDiv);
   messagesContainer.appendChild(messageDiv);
   scrollToBottom();
 
   return messageDiv;
+}
+
+function detectProjectContextHints(code) {
+  const hints = [];
+
+  if (code.js.includes('THREE.') || code.js.includes('three')) {
+    hints.push('This project uses Three.js.');
+  }
+
+  if (code.js.includes('React') || code.js.includes('react')) {
+    hints.push('This project uses React.');
+  }
+
+  if (code.js.includes('Vue') || code.js.includes('createApp(')) {
+    hints.push('This project uses Vue.');
+  }
+
+  return hints;
+}
+
+async function getConsoleErrors() {
+  if (!backgroundPort || !isPortConnected) return [];
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      backgroundPort.onMessage.removeListener(listener);
+      resolve([]);
+    }, 1000);
+
+    const listener = (message) => {
+      if (message.type === 'CONSOLE_ERRORS') {
+        clearTimeout(timeout);
+        backgroundPort.onMessage.removeListener(listener);
+        resolve(Array.isArray(message.errors) ? message.errors : []);
+      }
+    };
+
+    backgroundPort.onMessage.addListener(listener);
+    backgroundPort.postMessage({ type: 'GET_CONSOLE_ERRORS', tabId });
+  });
+}
+
+function getSelectedScopes() {
+  const scopes = { html: false, css: false, js: false };
+  scopeInputs.forEach((input) => {
+    scopes[input.value] = input.checked;
+  });
+  return scopes;
 }
 
 // Send message to AI provider
@@ -388,7 +441,7 @@ async function sendMessage() {
   sendBtn.disabled = true;
 
   // Add thinking indicator
-  const thinkingMessage = addThinkingMessage();
+  const thinkingMessage = addThinkingMessage(PROVIDER_NAMES[aiProvider]);
 
   // Refresh code before sending
   await new Promise(resolve => {
@@ -414,7 +467,10 @@ async function sendMessage() {
   });
 
   // Build system prompt with current code
-  const systemPrompt = buildSystemPrompt();
+  const projectHints = detectProjectContextHints(currentCode);
+  const consoleErrors = await getConsoleErrors();
+  const scopes = getSelectedScopes();
+  const systemPrompt = buildSystemPrompt({ projectHints, consoleErrors, scopes });
 
   // Add to conversation history
   conversationHistory.push({
@@ -440,7 +496,7 @@ async function sendMessage() {
     });
 
     // Check if we need to update code
-    const errors = await processAssistantResponse(response);
+    const errors = await processAssistantResponse(response, scopes);
 
     // If there were search/replace errors, add them to conversation history
     if (errors && errors.length > 0) {
@@ -465,7 +521,19 @@ async function sendMessage() {
 }
 
 // Build system prompt with current CodePen code
-function buildSystemPrompt() {
+function buildSystemPrompt({ projectHints = [], consoleErrors = [], scopes = { html: true, css: true, js: true } } = {}) {
+  const modeInstruction = assistantMode === 'explain'
+    ? 'User selected explain mode. Explain the current code and requested changes only. Do not output any UPDATE blocks.'
+    : 'User selected edit mode. Apply requested changes using UPDATE markers only for enabled scopes.';
+
+  const refactorInstruction = refactorOnly
+    ? 'Refactor-only mode is ON. You may improve readability/structure, but do not change behavior.'
+    : 'Refactor-only mode is OFF.';
+
+  const enabledScopes = Object.entries(scopes).filter(([, enabled]) => enabled).map(([scope]) => scope.toUpperCase()).join(', ') || 'NONE';
+  const contextSection = projectHints.length > 0 ? projectHints.join('\n') : 'No framework hint detected.';
+  const errorsSection = consoleErrors.length > 0 ? consoleErrors.join('\n') : 'No recent console errors captured.';
+
   return `You are an AI coding assistant integrated into Chrome DevTools for CodePen. You can read and modify the code in the CodePen editor.
 
 === CURRENT CODE IN EDITOR (always fresh, always up-to-date) ===
@@ -484,6 +552,17 @@ JavaScript:
 \`\`\`javascript
 ${currentCode.js || '(empty)'}
 \`\`\`
+
+=== PROJECT CONTEXT ===
+${contextSection}
+
+=== RECENT CONSOLE ERRORS ===
+${errorsSection}
+
+=== USER MODE ===
+${modeInstruction}
+${refactorInstruction}
+Enabled scopes: ${enabledScopes}
 
 === END CURRENT CODE ===
 
@@ -521,16 +600,18 @@ Important:
 - Copy-paste from the CURRENT CODE section to ensure exact matches
 - You can have multiple SEARCH/REPLACE pairs in one UPDATE block
 - Keep SEARCH blocks small and focused - just the lines you need to change
+- If a scope is disabled, do not include that UPDATE block
+- If explain mode is enabled, never output UPDATE blocks
 
 Be concise and helpful. Focus on the specific changes requested.`;
 }
 
 // Process assistant response and update CodePen if needed
-async function processAssistantResponse(response) {
+async function processAssistantResponse(response, scopes = { html: true, css: true, js: true }) {
   const updates = {
-    html: applySearchReplace(currentCode.html, response, 'UPDATE_HTML'),
-    css: applySearchReplace(currentCode.css, response, 'UPDATE_CSS'),
-    js: applySearchReplace(currentCode.js, response, 'UPDATE_JS')
+    html: scopes.html ? applySearchReplace(currentCode.html, response, 'UPDATE_HTML') : null,
+    css: scopes.css ? applySearchReplace(currentCode.css, response, 'UPDATE_CSS') : null,
+    js: scopes.js ? applySearchReplace(currentCode.js, response, 'UPDATE_JS') : null
   };
 
   const allErrors = [];
@@ -654,6 +735,15 @@ async function updateCodePenEditor(editor, newCode, changedLines = []) {
 }
 
 // Event listeners
+modeBtn.addEventListener('click', () => {
+  assistantMode = assistantMode === 'edit' ? 'explain' : 'edit';
+  modeBtn.textContent = `Mode: ${assistantMode === 'edit' ? 'Edit' : 'Explain'}`;
+});
+
+refactorOnlyInput.addEventListener('change', () => {
+  refactorOnly = refactorOnlyInput.checked;
+});
+
 sendBtn.addEventListener('click', sendMessage);
 
 userInput.addEventListener('keydown', (e) => {

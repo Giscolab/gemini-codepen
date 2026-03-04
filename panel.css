@@ -402,6 +402,50 @@ body {
   }
 }
 
+
+#assistant-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+#mode-btn {
+  background: #3a3a3d;
+  border: none;
+  color: #d4d4d4;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+#mode-btn:hover {
+  background: #4a4a4d;
+}
+
+.toggle-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #cccccc;
+}
+
+#scope-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+#scope-selector label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #cccccc;
+}
 #input-container {
   padding: 12px 16px;
   background: #252526;
