@@ -24,7 +24,7 @@ const MODEL_ENDPOINTS = {
   'deepseek-coder': { api: 'openai_compat', url: DEEPSEEK_CHAT_COMPLETIONS_URL, model: 'deepseek-coder' },
   'deepseek-v3.2': { api: 'openai_compat', url: DEEPSEEK_CHAT_COMPLETIONS_URL, model: 'deepseek-chat' },
   'mistral-large': { api: 'openai_compat', url: MISTRAL_CHAT_COMPLETIONS_URL, model: 'mistral-large-latest' },
-  magistral: { api: 'openai_compat', url: MISTRAL_CHAT_COMPLETIONS_URL, model: 'magistral-medium-latest' },
+  'magistral': { api: 'openai_compat', url: MISTRAL_CHAT_COMPLETIONS_URL, model: 'magistral-medium-latest' },
   'perplexity-pro': { api: 'openai_compat', url: PERPLEXITY_CHAT_COMPLETIONS_URL, model: 'sonar-pro' },
   'perplexity-deep-research': { api: 'openai_compat', url: PERPLEXITY_CHAT_COMPLETIONS_URL, model: 'sonar-deep-research' },
   'grok-reasoning': { api: 'openai_compat', url: XAI_CHAT_COMPLETIONS_URL, model: 'grok-3-mini' },
@@ -193,7 +193,9 @@ async function callAnthropicModel({ apiKey, model, systemPrompt, messages }) {
   }
 
   const data = await response.json();
-  return data?.content?.[0]?.text;
+  const text = data?.content?.[0]?.text;
+  if (!text) throw new Error('Empty Anthropic response');
+  return text;
 }
 
 const OPENAI_COMPAT_PROVIDER_BY_URL = {
@@ -317,90 +319,6 @@ chrome.runtime.onConnect.addListener((port) => {
       }
     }
 
-    if (message.type === 'CALL_CLAUDE') {
-      // Call Claude API from background (no CORS restrictions)
-      try {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': message.apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true'
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-5-20250929',
-            max_tokens: 4096,
-            system: message.systemPrompt,
-            messages: message.messages
-          })
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error?.message || 'API request failed');
-        }
-
-        const data = await response.json();
-        port.postMessage({
-          type: 'CLAUDE_RESPONSE',
-          response: data.content[0].text
-        });
-      } catch (error) {
-        port.postMessage({
-          type: 'ERROR',
-          error: error.message
-        });
-      }
-    }
-
-    if (message.type === 'CALL_GEMINI') {
-      // Call Gemini API from background (no CORS restrictions)
-      try {
-        // Convert messages to Gemini format
-        const geminiMessages = message.messages.map(msg => ({
-          role: msg.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: msg.content }]
-        }));
-
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${message.apiKey}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [{ text: message.systemPrompt }]
-            },
-            contents: geminiMessages,
-            generationConfig: {
-              maxOutputTokens: 8192
-            }
-          })
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error?.message || 'API request failed');
-        }
-
-        const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!text) {
-          throw new Error('Empty Gemini response');
-        }
-        port.postMessage({
-          type: 'GEMINI_RESPONSE',
-          response: text
-        });
-      } catch (error) {
-        port.postMessage({
-          type: 'ERROR',
-          error: error.message
-        });
-      }
-    }
-
     if (message.type === 'CALL_MODEL') {
       try {
         const modelConfig = MODEL_ENDPOINTS[message.model];
@@ -410,6 +328,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
         const chatMessages = (message.messages || []).filter((msg) => msg.role === 'user' || msg.role === 'assistant');
         const provider = resolveProviderFromModelConfig(modelConfig);
+        console.log('[CALL_MODEL]', message.model, provider);
         const responseText = await callProvider({
           provider,
           apiKey: message.apiKey,

@@ -42,7 +42,7 @@ Composants:
 - `background.js` : broker messages + appels IA (cloud/local).
 - `content.js` : pont `runtime` ↔ `window.postMessage`.
 - `inject.js` : accès direct à CodeMirror dans le main world.
-- `js/agents/*` : abstraction provider (`Agent`, `ClaudeAgent`, `GeminiAgent`, `LocalAgent`).
+- `js/agents/*` : abstraction provider (`Agent`, `LocalAgent`).
 
 ## Contextes d’exécution
 
@@ -70,18 +70,18 @@ Lecture/écriture code:
 Appel IA:
 
 1. Panel construit prompt système + historique.
-2. Agent envoie `CALL_CLAUDE` / `CALL_GEMINI` / `CALL_LOCAL`.
+2. Agent envoie `CALL_MODEL` / `CALL_LOCAL`.
 3. Background exécute l’appel provider.
-4. Background renvoie `*_RESPONSE`.
+4. Background renvoie `MODEL_RESPONSE` / `LOCAL_RESPONSE`.
 5. Panel parse les blocs `UPDATE_*`, applique les remplacements, pousse `UPDATE_CODE`.
 
 ## Modèle d’état
 
 État principal géré côté `panel.js`:
 
-- `aiProvider`: provider actif (`claude`, `gemini`, `local`).
-- `claudeApiKey` / `geminiApiKey`: clés API stockées en local.
-- `agent`: instance active (`ClaudeAgent`, `GeminiAgent`, `LocalAgent`).
+- `aiProvider`: provider actif (cloud ou `local`).
+- `apiKeys`: clés API par provider stockées en local.
+- `agent`: instance active (`Agent` pour cloud, `LocalAgent` pour local).
 - `conversationHistory`: historique messages envoyé au provider.
 - `currentCode`: snapshot courant `{ html, css, js }`.
 - `assistantMode`: `edit` ou `explain`.
@@ -91,24 +91,20 @@ Appel IA:
 
 Persistance:
 
-- `chrome.storage.local`: `claudeApiKey`, `geminiApiKey`, `aiProvider`.
+- `chrome.storage.local`: `apiKeys`, `selectedModel`, `aiProvider`.
 
 ## Intégration IA
 
 | Provider | Mode | Clé API requise | Exécution |
 |---|---|---|---|
-| Claude | Cloud | Oui | `fetch` depuis `background.js` |
-| Gemini | Cloud | Oui | `fetch` depuis `background.js` |
+| Cloud (modèle sélectionné) | Cloud | Oui (selon provider) | `fetch` depuis `background.js` via `CALL_MODEL` |
 | Local | Navigateur | Non | `LanguageModel` dans `background.js` |
 
 Détails techniques:
 
-- Claude:
-  - Endpoint: `https://api.anthropic.com/v1/messages`
-  - Modèle: `claude-sonnet-4-5-20250929`
-- Gemini:
-  - Endpoint: `.../models/gemini-2.5-flash:generateContent`
-  - Mapping rôles: `assistant -> model`, `user -> user`
+- Cloud:
+  - Résolution provider par `MODEL_ENDPOINTS` + `resolveProviderFromModelConfig(...)`
+  - Route unique: `CALL_MODEL`
 - Local:
   - Vérifie `LanguageModel` + `LanguageModel.availability()`
   - Session éphémère via `LanguageModel.create(...)` puis `session.prompt(...)`
@@ -178,7 +174,7 @@ Arborescence:
 - `background.js`
 - `content.js`
 - `inject.js`
-- `js/agents/Agent.js`, `ClaudeAgent.js`, `GeminiAgent.js`, `LocalAgent.js`
+- `js/agents/Agent.js`, `LocalAgent.js`
 
 Chargement local:
 
