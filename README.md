@@ -1,239 +1,191 @@
 # Chrome Code
 
-> L’assistant IA qui s’invite dans les DevTools pour discuter avec ton CodePen, comprendre ce que tu veux, et modifier HTML/CSS/JS directement dans les éditeurs.
+Extension Chrome (Manifest V3).
+Ajoute un panneau DevTools pour l’édition assistée par IA des éditeurs CodePen (HTML/CSS/JS).
 
 ![Chrome Code Screenshot](screenshot.jpg)
 
-## TL;DR (version terrienne pressée)
+## Vue d’ensemble
 
-- C’est une extension Chrome (Manifest V3) qui ajoute un onglet **Chrome Code** dans DevTools.
-- Cet onglet contient un chat.
-- Tu demandes une modif (“mets le fond en bleu”, “ajoute une animation”, etc.).
-- L’IA répond **et** propose des changements structurés.
-- L’extension applique les changements dans CodePen avec une logique de remplacement précise, puis surligne temporairement les lignes touchées.
+Fonctionnement:
 
-Si tu es un extraterrestre tombé ici par accident : non, ce n’est pas un IDE complet. C’est un copilote spécialisé CodePen, branché en direct sur les éditeurs de la page.
+1. Lecture du code courant depuis CodePen (HTML/CSS/JS).
+2. Construction d’un prompt système avec l’état réel de l’éditeur.
+3. Appel du provider IA sélectionné.
+4. Parsing des blocs `[UPDATE_*]` avec paires `<<<SEARCH>>>` / `<<<REPLACE>>>`.
+5. Application des remplacements valides dans CodeMirror + surlignage temporaire des lignes modifiées.
 
----
+Périmètre:
 
-## Pourquoi ce projet existe
+- Un Pen CodePen actif.
+- Édition incrémentale par remplacements exacts.
+- Pas de gestion multi-fichiers/projet.
 
-Quand on prototype dans CodePen, on alterne souvent entre :
-- idées rapides,
-- modifications ponctuelles,
-- tests visuels,
-- et “attends, où est la bonne ligne déjà ?”.
-
-Le but de **Chrome Code** est de réduire la friction :
-- tu formules l’intention en langage naturel,
-- l’extension lit l’état **actuel** du code,
-- l’IA répond en expliquant les changements,
-- le code est mis à jour sans copier-coller manuel.
-
-En clair : moins de gymnastique contextuelle, plus d’itérations.
-
----
-
-## Ce que fait exactement l’extension
-
-### 1) Ajoute un panneau DevTools
-Un panneau `Chrome Code` est créé dans DevTools (`devtools.js` + `devtools.html`), puis affiche l’UI de chat (`panel.html`, `panel.css`, `panel.js`).
-
-### 2) Se connecte à la page CodePen inspectée
-Le panneau utilise l’ID de l’onglet inspecté et ouvre un port vers le service worker de fond (`background.js`) pour orchestrer les échanges.
-
-### 3) Lit le code en cours dans les éditeurs CodeMirror
-- `inject.js` tourne dans le **main world** (même contexte que la page) pour accéder aux instances CodeMirror.
-- `content.js` sert de pont (postMessage ↔ runtime messages).
-- Résultat : récupération synchronisée de `html`, `css`, `js` depuis le CodePen actif.
-
-### 4) Envoie la demande à un provider IA
-Providers supportés :
-- **Claude** (API Anthropic)
-- **Gemini** (API Google)
-- **Local** (Prompt API embarquée de Chrome, via `LanguageModel`)
-
-Les appels réseau partent depuis le service worker (pas depuis le panel), ce qui contourne les blocages CORS côté UI.
-
-### 5) Reçoit une réponse structurée et applique les changements
-Le prompt système impose un format de patch basé sur des blocs :
-- `[UPDATE_HTML] ... [/UPDATE_HTML]`
-- `[UPDATE_CSS] ... [/UPDATE_CSS]`
-- `[UPDATE_JS] ... [/UPDATE_JS]`
-
-Chaque bloc contient des paires :
-- `<<<SEARCH>>>` (texte exact à trouver)
-- `<<<REPLACE>>>` (texte de remplacement)
-
-L’extension applique ces remplacements localement, signale les cas ambigus/non trouvés, pousse les modifications vers CodePen, et met en évidence les lignes modifiées.
-
-### 6) Gère les erreurs et la résilience
-- Reconnexion automatique si le port DevTools est coupé.
-- Timeout sur les requêtes IA.
-- Messages système explicites en cas de clé API manquante, modèle local indisponible, ou mismatch de recherche/remplacement.
-
----
-
-## Architecture (vue d’ensemble)
+## Architecture
 
 ```text
-DevTools Panel (panel.js)
-   │
-   │ Port runtime (INIT/GET_CODE/UPDATE_CODE/CALL_*)
-   ▼
-Background Service Worker (background.js)
-   │
-   ├──> Claude API / Gemini API / Local LanguageModel
-   │
-   └──> Message vers onglet CodePen (content.js)
-              │
-              ▼
-         inject.js (main world)
-              │
-              ▼
-      CodeMirror editors (HTML/CSS/JS)
+DevTools panel (devtools.js -> panel.html/panel.js)
+  ↕ runtime Port
+Background service worker (background.js)
+  ↕ chrome.tabs.sendMessage
+Content script isolé (content.js)
+  ↕ window.postMessage
+Script main world (inject.js)
+  ↕
+CodeMirror CodePen (.box-html/.box-css/.box-js)
 ```
 
----
+Composants:
 
-## Installation
+- `devtools.js` : création du panneau DevTools `Chrome Code`.
+- `panel.js` : orchestration UI, état, prompt, parsing/appli des patches.
+- `background.js` : broker messages + appels IA (cloud/local).
+- `content.js` : pont `runtime` ↔ `window.postMessage`.
+- `inject.js` : accès direct à CodeMirror dans le main world.
+- `js/agents/*` : abstraction provider (`Agent`, `ClaudeAgent`, `GeminiAgent`, `LocalAgent`).
 
-1. Ouvre `chrome://extensions/`
-2. Active **Developer mode**
-3. Clique sur **Load unpacked**
-4. Sélectionne ce dossier
+## Contextes d’exécution
 
-Et voilà : l’extension est chargée.
+- **DevTools panel**: UI chat, réglages, état conversationnel, port runtime.
+- **Service worker extension**: routage messages, appels réseau cloud, appels `LanguageModel`.
+- **Content script (isolated world)**: reçoit messages background, relaye vers main world.
+- **Main world script**: lit/écrit CodeMirror, capture erreurs console récentes.
 
----
+## Flux de messages
 
-## Configuration
+Initialisation:
 
-1. Ouvre une page d’édition CodePen (idéalement `codepen.io/pen/...`)
-2. Ouvre DevTools (`F12`)
-3. Va dans l’onglet **Chrome Code**
-4. Choisis ton provider IA : `Claude`, `Gemini` ou `Local`
-5. Si provider cloud : ouvre ⚙️ et enregistre la clé API
+1. `panel.js` ouvre un port runtime (`INIT`, `tabId`).
+2. `content.js` envoie `CONTENT_READY` au background.
+3. `background.js` notifie le panel connecté à ce `tabId`.
+4. `panel.js` déclenche `GET_CODE`.
 
-Liens utiles :
-- Claude API key : <https://console.anthropic.com/>
-- Gemini API key : <https://aistudio.google.com/apikey>
+Lecture/écriture code:
 
-### Mode Local (sans clé API)
-Le mode Local s’appuie sur l’API `LanguageModel` de Chrome.
-Si indisponible, active les flags indiqués dans l’UI :
-- `chrome://flags/#prompt-api-for-gemini-nano`
-- `chrome://flags/#optimization-guide-on-device-model`
+1. Panel → Background: `GET_CODE` / `UPDATE_CODE`.
+2. Background → Tab: `chrome.tabs.sendMessage(...)`.
+3. Content → Inject: `window.postMessage(action)`.
+4. Inject exécute (`getAllCode`, `setCode`, `getConsoleErrors`) puis renvoie la réponse.
 
----
+Appel IA:
 
-## Flux d’utilisation recommandé
+1. Panel construit prompt système + historique.
+2. Agent envoie `CALL_CLAUDE` / `CALL_GEMINI` / `CALL_LOCAL`.
+3. Background exécute l’appel provider.
+4. Background renvoie `*_RESPONSE`.
+5. Panel parse les blocs `UPDATE_*`, applique les remplacements, pousse `UPDATE_CODE`.
 
-1. **Demande claire** : “Ajoute un bouton CTA animé en bas à droite.”
-2. **Réponse IA** : explication + blocs UPDATE.
-3. **Application auto** : remplacement exact dans les éditeurs.
-4. **Feedback visuel** : lignes changées surlignées brièvement.
-5. **Itération** : “Rends-le plus discret”, “Passe en thème sombre”, etc.
+## Modèle d’état
 
-Astuce pratique : fais des demandes ciblées (petites modifs successives), car la logique SEARCH/REPLACE fonctionne mieux avec des remplacements précis qu’avec de grosses réécritures vagues.
+État principal géré côté `panel.js`:
 
----
+- `aiProvider`: provider actif (`claude`, `gemini`, `local`).
+- `claudeApiKey` / `geminiApiKey`: clés API stockées en local.
+- `agent`: instance active (`ClaudeAgent`, `GeminiAgent`, `LocalAgent`).
+- `conversationHistory`: historique messages envoyé au provider.
+- `currentCode`: snapshot courant `{ html, css, js }`.
+- `assistantMode`: `edit` ou `explain`.
+- `refactorOnly`: booléen, contrainte de non-changement comportemental.
+- `scopes`: activation par cible (`html`, `css`, `js`).
+- `backgroundPort` + `isPortConnected`: état de connectivité runtime.
 
-## Détails techniques importants
+Persistance:
 
-### Prompting orienté “source of truth”
-À chaque message utilisateur, le système reconstruit un prompt contenant le **code courant réel** (HTML/CSS/JS). L’IA doit s’y référer exclusivement.
+- `chrome.storage.local`: `claudeApiKey`, `geminiApiKey`, `aiProvider`.
 
-Pourquoi c’est utile :
-- évite de patcher un ancien état de conversation,
-- réduit les hallucinations de lignes “fantômes”,
-- rend les modifications plus déterministes.
+## Intégration IA
 
-### Application des patches
-La logique d’application :
-- cherche chaque bloc `SEARCH` dans le code actuel,
-- refuse les correspondances ambiguës (plusieurs occurrences),
-- signale les textes introuvables,
-- applique les remplacements valides,
-- calcule les lignes impactées pour les highlight.
+| Provider | Mode | Clé API requise | Exécution |
+|---|---|---|---|
+| Claude | Cloud | Oui | `fetch` depuis `background.js` |
+| Gemini | Cloud | Oui | `fetch` depuis `background.js` |
+| Local | Navigateur | Non | `LanguageModel` dans `background.js` |
 
-### Stockage local
-Les préférences (provider + clés API) sont conservées via `chrome.storage.local`.
+Détails techniques:
 
-### Permissions manifest
-L’extension demande principalement :
-- `activeTab`
-- `storage`
-- accès hôte à `codepen.io`, API Anthropic, API Gemini
+- Claude:
+  - Endpoint: `https://api.anthropic.com/v1/messages`
+  - Modèle: `claude-sonnet-4-5-20250929`
+- Gemini:
+  - Endpoint: `.../models/gemini-2.5-flash:generateContent`
+  - Mapping rôles: `assistant -> model`, `user -> user`
+- Local:
+  - Vérifie `LanguageModel` + `LanguageModel.availability()`
+  - Session éphémère via `LanguageModel.create(...)` puis `session.prompt(...)`
 
----
+Protocole de patch imposé:
 
-## État d’esprit d’exécution (oui, avec humeur)
+- Blocs: `[UPDATE_HTML]`, `[UPDATE_CSS]`, `[UPDATE_JS]`
+- Paires internes: `<<<SEARCH>>>` / `<<<REPLACE>>>`
+- Règles:
+  - correspondance exacte,
+  - refus des occurrences ambiguës,
+  - signalement des `SEARCH` introuvables,
+  - application partielle des remplacements valides.
 
-Si le projet avait une personnalité, ce serait :
-- **Curieux** : il relit le code avant chaque action.
-- **Méthodique** : il exige des remplacements exacts.
-- **Pragmatique** : il applique ce qui est sûr, signale le reste.
-- **Un peu dramatique** : il te dit quand ça ne trouve pas le bon `SEARCH`.
-- **Productif après trois cafés** : discussion rapide, cycles courts, feedback immédiat.
+## Modèle de sécurité
 
----
+Permissions (`manifest.json`):
 
-## Limitations connues
+- Extension: `activeTab`, `storage`
+- Hosts: CodePen + Anthropic API + Google Generative Language API
 
-- Dépend de la structure CodePen/CodeMirror attendue (sélecteurs `.box-html`, `.box-css`, `.box-js`).
-- Les gros changements en une seule passe peuvent augmenter les échecs de matching exact.
-- Le mode Local dépend des capacités expérimentales de ton Chrome.
-- L’outil n’est pas un gestionnaire de projet multi-fichiers : il opère sur le Pen ouvert.
+Isolation et surface d’échange:
 
----
+- Accès DOM/CodeMirror uniquement via `inject.js` en main world.
+- Pont inter-contextes via `window.postMessage` avec tags `source` dédiés.
+- Le script injecté ignore les messages hors fenêtre courante (`event.source !== window`).
 
-## Dépannage rapide
+Rendu UI:
 
-### “Not connected” dans le panneau
-- Vérifie que tu es bien sur une page d’éditeur CodePen.
-- Recharge la page, rouvre DevTools.
-- Regarde la console DevTools pour les erreurs runtime.
+- Markdown assistant: `marked` + sanitization `DOMPurify`.
+- Blocs code: échappement HTML avant insertion.
 
-### “Please set your API key”
-- Ouvre ⚙️, colle la clé du provider sélectionné, sauvegarde.
+Données:
 
-### “Could not find text to replace”
-- L’IA a probablement proposé un `SEARCH` qui ne colle pas exactement au code courant.
-- Refais une demande en rappelant de cibler un fragment plus petit.
+- Clés API stockées localement (`chrome.storage.local`).
+- En mode cloud, prompt + contexte code sont envoyés au provider choisi.
+- Aucun backend applicatif propre au repo.
 
-### Mode local indisponible
-- Active les flags Chrome mentionnés plus haut.
-- Vérifie l’état de disponibilité du modèle local (un téléchargement peut être en cours).
+## Gestion des défaillances
 
----
+Mécanismes implémentés:
 
-## Sécurité & confidentialité (niveau pragmatique)
+- **Perte de port runtime**: reconnexion automatique panel (retry ~1s).
+- **Timeout requête provider**: timeout agent (30s cloud, 60s local).
+- **Timeout bridge content↔inject**: résolution nulle après 3s.
+- **Éditeurs non prêts**: boucle de vérification (jusqu’à 10 tentatives, 1s).
+- **Patch ambigu**: rejet si `SEARCH` présent plusieurs fois.
+- **Patch introuvable**: erreur remontée + message système + feedback dans historique.
+- **Provider local indisponible/téléchargement en cours**: erreurs explicites.
 
-- Les appels cloud envoient ton message + contexte code au provider choisi.
-- Les clés API sont stockées localement via `chrome.storage.local`.
-- Aucun backend propriétaire additionnel n’est introduit par ce repo : l’extension parle directement aux APIs configurées.
+## Développement
 
-Si tu manipules du code sensible, préfère le mode Local quand il est disponible.
+Arborescence:
 
----
+- `manifest.json`
+- `devtools.html`, `devtools.js`
+- `panel.html`, `panel.css`, `panel.js`
+- `background.js`
+- `content.js`
+- `inject.js`
+- `js/agents/Agent.js`, `ClaudeAgent.js`, `GeminiAgent.js`, `LocalAgent.js`
 
-## Structure du dépôt
+Chargement local:
 
-- `manifest.json` : déclaration extension + permissions + scripts
-- `devtools.html` / `devtools.js` : point d’entrée panneau DevTools
-- `panel.html` / `panel.css` / `panel.js` : UI chat + logique d’orchestration
-- `background.js` : broker messages + appels IA
-- `content.js` : pont runtime ↔ page
-- `inject.js` : accès CodeMirror en main world
-- `js/agents/*` : classes Agent (Claude/Gemini/Local)
-- `icons/*` : assets icônes
-- `screenshot.jpg` : aperçu
+1. `chrome://extensions`
+2. Activer *Developer mode*
+3. *Load unpacked*
+4. Sélectionner le dossier du repo
 
----
+## Limitations
+
+- Couplage à la structure DOM CodePen et à CodeMirror (`.box-html/.box-css/.box-js`).
+- Fiabilité dépendante de la qualité des blocs `SEARCH/REPLACE` générés.
+- Modifications massives en une passe: risque accru d’échecs de matching.
+- Mode local dépend des capacités Chrome (`LanguageModel`) et de flags expérimentaux.
+- Conçu pour un Pen actif; pas de synchronisation multi-onglets/projets.
 
 ## Licence
 
-MIT
-
-Tu peux forker, adapter, expérimenter, et pousser l’idée plus loin (par exemple en ajoutant un mode “prévisualisation de patch” avant application).
+MIT (`LICENSE`).
