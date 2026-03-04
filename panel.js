@@ -98,7 +98,7 @@ const getApiKey = () => {
 const mapModelToProvider = (model) => {
   const modelConfig = MODEL_CONFIG[model];
   if (!modelConfig) return 'claude';
-  return modelConfig.provider === 'local' ? 'local' : 'claude';
+  return modelConfig.provider;
 };
 
 function showProviderTab(tab) {
