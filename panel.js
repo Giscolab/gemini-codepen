@@ -259,12 +259,17 @@ function formatDiffBlock(blockContent, escapeHtml) {
   const sections = blockContent.split('<<<SEARCH>>>').filter(s => s.trim());
   let html = '';
 
+  const normalizeBlockText = (text) => text
+    .replace(/\r/g, '')
+    .replace(/^\n/, '')
+    .replace(/\n$/, '');
+
   for (const section of sections) {
     if (!section.includes('<<<REPLACE>>>')) continue;
 
     const [searchPart, replacePart] = section.split('<<<REPLACE>>>');
-    const searchText = searchPart.trim();
-    const replaceText = replacePart.split('<<<')[0].trim();
+    const searchText = normalizeBlockText(searchPart);
+    const replaceText = normalizeBlockText(replacePart.split('<<<')[0]);
 
     // Compute character-level diff
     const diff = Diff.diffChars(searchText, replaceText);
@@ -302,6 +307,11 @@ function formatMessageContent(content) {
     return div.innerHTML;
   };
 
+  const renderMarkdown = (text) => {
+    const parsed = marked.parse(text);
+    return DOMPurify.sanitize(parsed);
+  };
+
   // Pattern to match code blocks: [UPDATE_XXX]...[/UPDATE_XXX]
   const codeBlockPattern = /\[UPDATE_(HTML|CSS|JS)\]([\s\S]*?)\[\/UPDATE_\1\]/g;
 
@@ -313,7 +323,7 @@ function formatMessageContent(content) {
     // Add text before the code block (render as markdown)
     if (match.index > lastIndex) {
       const textBefore = content.substring(lastIndex, match.index);
-      result += marked.parse(textBefore);
+      result += renderMarkdown(textBefore);
     }
 
     const language = match[1].toLowerCase();
@@ -341,7 +351,7 @@ function formatMessageContent(content) {
   // Add remaining text after last code block (render as markdown)
   if (lastIndex < content.length) {
     const textAfter = content.substring(lastIndex);
-    result += marked.parse(textAfter);
+    result += renderMarkdown(textAfter);
   }
 
   return result;
@@ -648,6 +658,11 @@ function applySearchReplace(currentCode, responseText, marker) {
   const blockContent = responseText.substring(startIndex + startMarker.length, endIndex);
   let newCode = currentCode || '';
 
+  const normalizeBlockText = (text) => text
+    .replace(/\r/g, '')
+    .replace(/^\n/, '')
+    .replace(/\n$/, '');
+
   // Split by <<<SEARCH>>> to find all search/replace pairs
   const sections = blockContent.split('<<<SEARCH>>>').filter(s => s.trim());
   let hasChanges = false;
@@ -661,8 +676,8 @@ function applySearchReplace(currentCode, responseText, marker) {
     }
 
     const [searchPart, replacePart] = section.split('<<<REPLACE>>>');
-    const searchText = searchPart.trim();
-    const replaceText = replacePart.split('<<<')[0].trim(); // Stop at next marker or end
+    const searchText = normalizeBlockText(searchPart);
+    const replaceText = normalizeBlockText(replacePart.split('<<<')[0]); // Stop at next marker or end
 
     const searchIndex = newCode.indexOf(searchText);
     if (searchIndex !== -1) {
