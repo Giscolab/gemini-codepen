@@ -1,7 +1,6 @@
 if (window.top !== window) {
   console.log('[Chrome Code] inject.js ignored in iframe:', location.href);
-  throw new Error('Ignore iframe');
-}
+} else {
 
 
 // This script runs in the main world (same context as CodePen)
@@ -23,24 +22,41 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 const API = {
+  _getBox(editorType) {
+    return document.querySelector(`.box-${editorType}`);
+  },
+
+  _getCM5(box) {
+    const cmElement = box?.querySelector?.('.CodeMirror');
+    return cmElement?.CodeMirror || null;
+  },
+
+  _getCM6Content(box) {
+    return box?.querySelector?.('.cm-editor .cm-content[contenteditable="true"]') || null;
+  },
+
   getCode(editorType) {
-    const box = document.querySelector(`.box-${editorType}`);
-    if (box) {
-      const cmElement = box.querySelector('.CodeMirror');
-      if (cmElement && cmElement.CodeMirror) {
-        return cmElement.CodeMirror.getValue();
-      }
+    const box = this._getBox(editorType);
+    const cm5 = this._getCM5(box);
+
+    if (cm5) {
+      return cm5.getValue();
     }
+
+    const cm6Content = this._getCM6Content(box);
+    if (cm6Content) {
+      return cm6Content.innerText.replace(/\u00a0/g, ' ');
+    }
+
     return null;
   },
 
   setCode(editorType, code, changedLines = []) {
-    const box = document.querySelector(`.box-${editorType}`);
-    if (box) {
-      const cmElement = box.querySelector('.CodeMirror');
-      if (cmElement && cmElement.CodeMirror) {
-        const cm = cmElement.CodeMirror;
-        cm.setValue(code);
+    const box = this._getBox(editorType);
+    const cm5 = this._getCM5(box);
+
+    if (cm5) {
+      cm5.setValue(code);
 
         // Highlight changed lines
         if (changedLines && changedLines.length > 0) {
@@ -63,24 +79,38 @@ const API = {
 
           // Scroll to the first changed line
           const firstLine = Math.min(...changedLines);
-          cm.scrollIntoView({line: firstLine, ch: 0}, 200);
+          cm5.scrollIntoView({line: firstLine, ch: 0}, 200);
 
           // Highlight each changed line
           changedLines.forEach(lineNum => {
-            cm.addLineClass(lineNum, 'background', 'chrome-code-highlight');
+            cm5.addLineClass(lineNum, 'background', 'chrome-code-highlight');
           });
 
           // Remove highlights after animation completes
           setTimeout(() => {
             changedLines.forEach(lineNum => {
-              cm.removeLineClass(lineNum, 'background', 'chrome-code-highlight');
+              cm5.removeLineClass(lineNum, 'background', 'chrome-code-highlight');
             });
           }, 2000);
         }
 
         return true;
-      }
     }
+
+    const cm6Content = this._getCM6Content(box);
+    if (cm6Content) {
+      cm6Content.focus();
+      document.execCommand('selectAll');
+
+      const didInsert = document.execCommand('insertText', false, code);
+      if (!didInsert) {
+        cm6Content.textContent = code;
+        cm6Content.dispatchEvent(new InputEvent('input', { bubbles: true, data: code }));
+      }
+
+      return true;
+    }
+
     return false;
   },
 
@@ -93,10 +123,9 @@ const API = {
   },
 
   checkEditorsReady() {
-    const html = this.getCode('html');
-    const css = this.getCode('css');
-    const js = this.getCode('js');
-    return html !== null || css !== null || js !== null;
+    const hasCM5 = !!document.querySelector('.CodeMirror');
+    const hasCM6 = !!document.querySelector('.cm-editor .cm-content[contenteditable="true"]');
+    return hasCM5 || hasCM6;
   },
 
   getConsoleErrors() {
@@ -113,6 +142,8 @@ window.addEventListener('message', (event) => {
   if (message.source !== 'chrome-code-content') return;
 
   let response = { id: message.id, source: 'chrome-code-inject' };
+
+  console.log('[Chrome Code] inject received', message.action, 'ready=', API.checkEditorsReady());
 
   switch (message.action) {
     case 'checkReady':
@@ -134,3 +165,4 @@ window.addEventListener('message', (event) => {
 
   window.postMessage(response, '*');
 });
+}
