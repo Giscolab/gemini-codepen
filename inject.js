@@ -35,6 +35,29 @@ const API = {
     return box?.querySelector?.('.cm-editor .cm-content[contenteditable="true"]') || null;
   },
 
+  _getCM6View(box) {
+    const editorEl = box?.querySelector?.('.cm-editor');
+    if (!editorEl) return null;
+
+    const resolveView = (candidate) => {
+      if (!candidate) return null;
+      if (typeof candidate.dispatch === 'function' && candidate.state?.doc) return candidate;
+      if (typeof candidate.view?.dispatch === 'function' && candidate.view?.state?.doc) return candidate.view;
+      if (typeof candidate.rootView?.view?.dispatch === 'function' && candidate.rootView?.view?.state?.doc) {
+        return candidate.rootView.view;
+      }
+      return null;
+    };
+
+    const elementsToCheck = [editorEl, ...editorEl.querySelectorAll('*')];
+    for (const element of elementsToCheck) {
+      const view = resolveView(element.cmView) || resolveView(element.view) || resolveView(element._cmView);
+      if (view) return view;
+    }
+
+    return null;
+  },
+
   getCode(editorType) {
     const box = this._getBox(editorType);
     const cm5 = this._getCM5(box);
@@ -97,20 +120,44 @@ const API = {
         return true;
     }
 
+    const cm6View = this._getCM6View(box);
+    if (cm6View) {
+      try {
+        const docLength = cm6View.state.doc.length;
+        cm6View.dispatch({
+          changes: { from: 0, to: docLength, insert: code }
+        });
+
+        if (cm6View.state.doc.toString() === code) {
+          console.log('[Chrome Code] CM6 dispatch ok', editorType);
+          return true;
+        }
+      } catch (error) {
+        console.warn('[Chrome Code] CM6 dispatch erreur, fallback requis', error);
+      }
+    }
+
     const cm6Content = this._getCM6Content(box);
     if (cm6Content) {
       cm6Content.focus();
       document.execCommand('selectAll');
 
       const didInsert = document.execCommand('insertText', false, code);
-      if (!didInsert) {
-        cm6Content.textContent = code;
-        cm6Content.dispatchEvent(new InputEvent('input', { bubbles: true, data: code }));
+      if (didInsert) {
+        console.log('[Chrome Code] fallback utilisé', editorType);
+        return true;
       }
 
-      return true;
+      cm6Content.textContent = code;
+      cm6Content.dispatchEvent(new InputEvent('input', { bubbles: true, data: code }));
+
+      if (cm6Content.textContent === code) {
+        console.log('[Chrome Code] fallback utilisé', editorType);
+        return true;
+      }
     }
 
+    console.error('[Chrome Code] échec setCode', editorType);
     return false;
   },
 
