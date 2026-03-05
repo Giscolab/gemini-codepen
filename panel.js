@@ -367,20 +367,12 @@ function scrollToBottom() {
 
 // Format SEARCH/REPLACE block as colored diff
 function formatDiffBlock(blockContent, escapeHtml) {
-  const sections = blockContent.split('<<<SEARCH>>>').filter(s => s.trim());
+  const sections = UpdateParser.parseSearchReplaceSections(blockContent);
   let html = '';
 
-  const normalizeBlockText = (text) => text
-    .replace(/\r/g, '')
-    .replace(/^\n/, '')
-    .replace(/\n$/, '');
-
   for (const section of sections) {
-    if (!section.includes('<<<REPLACE>>>')) continue;
-
-    const [searchPart, replacePart] = section.split('<<<REPLACE>>>');
-    const searchText = normalizeBlockText(searchPart);
-    const replaceText = normalizeBlockText(replacePart.split('<<<')[0]);
+    const searchText = section.searchText;
+    const replaceText = section.replaceText;
 
     // Compute character-level diff
     const diff = Diff.diffChars(searchText, replaceText);
@@ -423,25 +415,24 @@ function formatMessageContent(content) {
     return DOMPurify.sanitize(parsed);
   };
 
-  // Pattern to match code blocks: [UPDATE_XXX]...[/UPDATE_XXX]
-  const codeBlockPattern = /\[UPDATE_(HTML|CSS|JS)\]([\s\S]*?)\[\/UPDATE_\1\]/g;
+  const updateBlocks = UpdateParser.extractUpdateBlocks(content);
 
   let lastIndex = 0;
   let result = '';
-  let match;
 
-  while ((match = codeBlockPattern.exec(content)) !== null) {
-    // Add text before the code block (render as markdown)
-    if (match.index > lastIndex) {
-      const textBefore = content.substring(lastIndex, match.index);
+  for (const block of updateBlocks) {
+    if (block.start > lastIndex) {
+      const textBefore = content.substring(lastIndex, block.start);
       result += renderMarkdown(textBefore);
     }
 
-    const language = match[1].toLowerCase();
-    const blockContent = match[2].trim();
+    const language = block.marker.replace('UPDATE_', '').toLowerCase();
+    const blockContent = block.content;
+
+    const hasSearchReplace = UpdateParser.parseSearchReplaceSections(blockContent).length > 0;
 
     // Check if this is a SEARCH/REPLACE block or complete code
-    if (blockContent.includes('<<<SEARCH>>>') && blockContent.includes('<<<REPLACE>>>')) {
+    if (hasSearchReplace) {
       // Format as SEARCH/REPLACE diff with colored view
       const diffHtml = formatDiffBlock(blockContent, escapeHtml);
       result += `<details open>
@@ -456,7 +447,7 @@ function formatMessageContent(content) {
       </details>`;
     }
 
-    lastIndex = match.index + match[0].length;
+    lastIndex = block.end;
   }
 
   // Add remaining text after last code block (render as markdown)
@@ -610,7 +601,7 @@ async function sendMessage() {
     addMessage('assistant', response);
 
     // Add to history (strip out UPDATE blocks to avoid confusion)
-    const responseWithoutCode = response.replace(/\[UPDATE_(HTML|CSS|JS)\][\s\S]*?\[\/UPDATE_\1\]/g, '').trim();
+    const responseWithoutCode = UpdateParser.stripUpdateBlocks(response);
     conversationHistory.push({
       role: 'assistant',
       content: responseWithoutCode || 'Code updated.'
@@ -757,42 +748,25 @@ async function processAssistantResponse(response, scopes = { html: true, css: tr
 
 // Apply SEARCH/REPLACE blocks to code
 function applySearchReplace(currentCode, responseText, marker) {
-  const startMarker = `[${marker}]`;
-  const endMarker = `[/${marker}]`;
-  const startIndex = responseText.indexOf(startMarker);
-  const endIndex = responseText.indexOf(endMarker);
+  const updateBlock = UpdateParser.extractUpdateBlocks(responseText)
+    .find((block) => block.marker === marker);
 
-  if (startIndex === -1 || endIndex === -1) {
+  if (!updateBlock) {
     return null;
   }
 
-  const blockContent = responseText.substring(
-    startIndex + startMarker.length,
-    endIndex
-  );
-
+  const blockContent = updateBlock.content;
   let newCode = currentCode || '';
-
-  const normalize = (text) =>
-    text
-      .replace(/\r/g, '')
-      .replace(/^\n+/, '')
-      .replace(/\n+$/, '');
-
-  const sections = blockContent.split('<<<SEARCH>>>');
+  const sections = UpdateParser.parseSearchReplaceSections(blockContent);
+  const hasSearchReplace = sections.length > 0;
   let hasChanges = false;
   const changedLines = new Set();
   const errors = [];
 
-  for (const rawSection of sections) {
-    if (!rawSection.includes('<<<REPLACE>>>')) continue;
+  for (const section of sections) {
+    const searchText = section.searchText;
+    const replaceText = section.replaceText;
 
-    const [searchPart, replacePart] = rawSection.split('<<<REPLACE>>>');
-
-    const searchText = normalize(searchPart);
-    const replaceText = normalize(replacePart.split('<<<')[0]);
-
-    // INSERTION : SEARCH vide
     if (!searchText.trim()) {
       const startLine = newCode.split('\n').length - 1;
       const replaceLines = replaceText.split('\n').length;
@@ -807,7 +781,6 @@ function applySearchReplace(currentCode, responseText, marker) {
       continue;
     }
 
-    // REPLACEMENT : SEARCH non vide
     const escapedSearch = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const flexibleSearch = escapedSearch.replace(/\s+/g, '\\s+');
     const regex = new RegExp(flexibleSearch);
@@ -839,6 +812,14 @@ function applySearchReplace(currentCode, responseText, marker) {
       errors.push(errorMsg);
       addSystemMessage(`Could not find text to replace in ${editorName}`);
     }
+  }
+
+  if (!hasSearchReplace) {
+    return {
+      code: null,
+      lines: [],
+      errors: [`${marker} block found but no valid SEARCH/REPLACE pairs were provided.`]
+    };
   }
 
   if (hasChanges) {
