@@ -1,20 +1,65 @@
-<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Background circle -->
-  <circle cx="64" cy="64" r="60" fill="#1e1e1e"/>
-  <circle cx="64" cy="64" r="60" fill="url(#gradient)" opacity="0.8"/>
-
-  <!-- Code brackets -->
-  <path d="M 35 35 L 25 50 L 25 78 L 35 93" stroke="#4ec9b0" stroke-width="6" fill="none" stroke-linecap="round"/>
-  <path d="M 93 35 L 103 50 L 103 78 L 93 93" stroke="#4ec9b0" stroke-width="6" fill="none" stroke-linecap="round"/>
-
-  <!-- AI brain/spark icon in the middle -->
-  <circle cx="64" cy="64" r="18" fill="#0e639c"/>
-  <path d="M 64 46 L 67 55 L 76 52 L 69 60 L 78 67 L 69 64 L 72 73 L 64 66 L 56 73 L 59 64 L 50 67 L 59 60 L 52 52 L 61 55 Z" fill="#fff" opacity="0.9"/>
-
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 400 400">
   <defs>
-    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0e639c;stop-opacity:0.6" />
-      <stop offset="100%" style="stop-color:#4ec9b0;stop-opacity:0.3" />
+    <linearGradient id="c" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#ea4335"/>
+      <stop offset="100%" stop-color="#fbbc04"/>
     </linearGradient>
+    <linearGradient id="e" x1="100%" x2="0%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#34a853"/>
+      <stop offset="100%" stop-color="#0a9c6e"/>
+    </linearGradient>
+    <linearGradient id="f" x1="0%" x2="100%" y1="100%" y2="0%">
+      <stop offset="0%" stop-color="#4285f4"/>
+      <stop offset="100%" stop-color="#0d6efd"/>
+    </linearGradient>
+    <filter id="d" width="180%" height="180%" x="-40%" y="-40%">
+      <feGaussianBlur result="blur" stdDeviation="4"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="h" width="220%" height="220%" x="-60%" y="-60%">
+      <feGaussianBlur result="blur" stdDeviation="8"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="i">
+      <feGaussianBlur result="blur" stdDeviation="3"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <radialGradient id="a" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0f1923"/>
+      <stop offset="100%" stop-color="#070d14"/>
+    </radialGradient>
+    <radialGradient id="g" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1a2e45"/>
+      <stop offset="60%" stop-color="#0d1e2e"/>
+      <stop offset="100%" stop-color="#070d14"/>
+    </radialGradient>
+    <pattern id="b" width="1" height="4" x="0" y="0" patternUnits="userSpaceOnUse">
+      <path fill="rgba(255,255,255,0.015)" d="M0 0h1v1H0z"/>
+    </pattern>
   </defs>
+  <rect width="400" height="400" fill="url(#a)" rx="32"/>
+  <rect width="400" height="400" fill="url(#b)" rx="32"/>
+  <path fill="none" stroke="url(#c)" stroke-linecap="round" stroke-width="14" d="M200 68a132 132 0 0 1 132 132" filter="url(#d)"/>
+  <path fill="none" stroke="url(#e)" stroke-linecap="round" stroke-width="14" d="M332 200a132 132 0 0 1-264 0" filter="url(#d)"/>
+  <path fill="none" stroke="url(#f)" stroke-linecap="round" stroke-width="14" d="M68 200A132 132 0 0 1 200 68" filter="url(#d)"/>
+  <circle cx="200" cy="200" r="132" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="22"/>
+  <circle cx="200" cy="200" r="108" fill="none" stroke="rgba(255,255,255,0.07)"/>
+  <circle cx="200" cy="200" r="96" fill="url(#g)"/>
+  <path fill="none" stroke="#4285f4" stroke-linecap="round" stroke-linejoin="round" stroke-width="9" d="m156 168-24 32 24 32" filter="url(#h)"/>
+  <path fill="none" stroke="#ea4335" stroke-linecap="round" stroke-linejoin="round" stroke-width="9" d="m244 168 24 32-24 32" filter="url(#h)"/>
+  <circle cx="200" cy="200" r="5" fill="#4285f4" filter="url(#h)" opacity=".9"/>
+  <circle cx="200" cy="70" r="3.5" fill="#ea4335" filter="url(#d)"/>
+  <circle cx="314" cy="266" r="3.5" fill="#34a853" filter="url(#d)"/>
+  <circle cx="86" cy="266" r="3.5" fill="#fbbc04" filter="url(#d)"/>
+  <text x="200" y="348" fill="#c8d6e8" filter="url(#i)" font-family="'Courier New', Courier, monospace" font-size="22" font-weight="700" letter-spacing="6" text-anchor="middle">CHROME CODE</text>
+  <text x="200" y="368" fill="rgba(66,133,244,0.7)" font-family="'Courier New', Courier, monospace" font-size="9.5" letter-spacing="3.5" text-anchor="middle">AI · DEVTOOLS · CODEPEN</text>
 </svg>

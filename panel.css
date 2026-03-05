@@ -272,10 +272,21 @@ body {
   font-weight: 600;
 }
 
-.message-content h1 { font-size: 18px; }
-.message-content h2 { font-size: 16px; }
-.message-content h3 { font-size: 14px; }
-.message-content h4 { font-size: 13px; }
+.message-content h1 {
+  font-size: 18px;
+}
+
+.message-content h2 {
+  font-size: 16px;
+}
+
+.message-content h3 {
+  font-size: 14px;
+}
+
+.message-content h4 {
+  font-size: 13px;
+}
 
 .message-content strong {
   font-weight: 600;
@@ -333,8 +344,7 @@ body {
   background: #3e3e42;
 }
 
-.message-content details[open] summary {
-}
+.message-content details[open] summary {}
 
 .message-content details pre {
   margin: 0;
@@ -428,9 +438,13 @@ body {
 }
 
 @keyframes thinking {
-  0%, 60%, 100% {
+
+  0%,
+  60%,
+  100% {
     opacity: 0.3;
   }
+
   30% {
     opacity: 1;
   }
@@ -480,6 +494,7 @@ body {
   gap: 4px;
   color: #cccccc;
 }
+
 #input-container {
   padding: 12px 16px;
   background: #252526;
