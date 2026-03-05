@@ -766,74 +766,90 @@ function applySearchReplace(currentCode, responseText, marker) {
     return null;
   }
 
-  const blockContent = responseText.substring(startIndex + startMarker.length, endIndex);
+  const blockContent = responseText.substring(
+    startIndex + startMarker.length,
+    endIndex
+  );
+
   let newCode = currentCode || '';
 
-  const normalizeBlockText = (text) => text
-    .replace(/\r/g, '')
-    .replace(/^\n/, '')
-    .replace(/\n$/, '');
+  const normalize = (text) =>
+    text
+      .replace(/\r/g, '')
+      .replace(/^\n+/, '')
+      .replace(/\n+$/, '');
 
-  // Split by <<<SEARCH>>> to find all search/replace pairs
-  const sections = blockContent.split('<<<SEARCH>>>').filter(s => s.trim());
+  const sections = blockContent.split('<<<SEARCH>>>');
   let hasChanges = false;
   const changedLines = new Set();
   const errors = [];
 
-  for (const section of sections) {
-    // Check if this section has a <<<REPLACE>>> marker
-    if (!section.includes('<<<REPLACE>>>')) {
+  for (const rawSection of sections) {
+    if (!rawSection.includes('<<<REPLACE>>>')) continue;
+
+    const [searchPart, replacePart] = rawSection.split('<<<REPLACE>>>');
+
+    const searchText = normalize(searchPart);
+    const replaceText = normalize(replacePart.split('<<<')[0]);
+
+    // INSERTION : SEARCH vide
+    if (!searchText.trim()) {
+      const startLine = newCode.split('\n').length - 1;
+      const replaceLines = replaceText.split('\n').length;
+
+      newCode += '\n' + replaceText;
+
+      for (let i = 0; i < replaceLines; i++) {
+        changedLines.add(startLine + i);
+      }
+
+      hasChanges = true;
       continue;
     }
 
-    const [searchPart, replacePart] = section.split('<<<REPLACE>>>');
-    const searchText = normalizeBlockText(searchPart);
-    const replaceText = normalizeBlockText(replacePart.split('<<<')[0]); // Stop at next marker or end
+    // REPLACEMENT : SEARCH non vide
+    const escapedSearch = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const flexibleSearch = escapedSearch.replace(/\s+/g, '\\s+');
+    const regex = new RegExp(flexibleSearch);
 
-    const searchIndex = newCode.indexOf(searchText);
-    if (searchIndex !== -1) {
-      const escapedSearch = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const occurrences = (newCode.match(new RegExp(escapedSearch, 'g')) || []).length;
-      if (occurrences !== 1) {
-        const editorName = marker.replace('UPDATE_', '');
-        const errorMsg = `Ambiguous match in ${editorName}`;
-        console.warn(errorMsg);
-        errors.push(errorMsg);
-        addSystemMessage(`Ambiguous match in ${editorName}`);
-        continue;
-      }
+    const match = regex.exec(newCode);
 
-      // Find which lines were affected
+    if (match) {
+      const searchIndex = match.index;
+
       const beforeSearch = newCode.substring(0, searchIndex);
       const startLine = beforeSearch.split('\n').length - 1;
       const searchLines = searchText.split('\n').length;
       const replaceLines = replaceText.split('\n').length;
 
-      // Mark affected lines
       for (let i = 0; i < Math.max(searchLines, replaceLines); i++) {
         changedLines.add(startLine + i);
       }
 
-      newCode = newCode.replace(searchText, replaceText);
+      newCode =
+        newCode.substring(0, searchIndex) +
+        replaceText +
+        newCode.substring(searchIndex + match[0].length);
+
       hasChanges = true;
+
     } else {
       const editorName = marker.replace('UPDATE_', '');
       const errorMsg = `In ${editorName} editor, could not find:\n${searchText}`;
-      console.warn(errorMsg);
       errors.push(errorMsg);
       addSystemMessage(`Could not find text to replace in ${editorName}`);
     }
   }
 
-  // Return result with errors
   if (hasChanges) {
     return { code: newCode, lines: Array.from(changedLines), errors };
-  } else if (errors.length > 0) {
-    // No changes made, but there were errors
-    return { code: null, lines: [], errors };
-  } else {
-    return null;
   }
+
+  if (errors.length > 0) {
+    return { code: null, lines: [], errors };
+  }
+
+  return null;
 }
 
 // Update CodePen editor

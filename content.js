@@ -1,3 +1,11 @@
+if (window.top !== window) {
+  // Important: évite que des iframes répondent aux messages à la place de l’éditeur
+  console.log('[Chrome Code] content.js ignored in iframe:', location.href);
+  // Ne pas installer les listeners/messages
+  throw new Error('Ignore iframe');
+}
+
+
 // Content script that runs on CodePen pages (in isolated world)
 // Communicates with inject.js (which runs in main world) via window.postMessage
 
@@ -117,3 +125,5 @@ if (document.readyState === 'loading') {
 } else {
   setTimeout(checkEditorsReadyLoop, 1000);
 }
+
+console.log('CONTENT SCRIPT LOADED', window.location.href);

@@ -1,3 +1,9 @@
+if (window.top !== window) {
+  console.log('[Chrome Code] inject.js ignored in iframe:', location.href);
+  throw new Error('Ignore iframe');
+}
+
+
 // This script runs in the main world (same context as CodePen)
 // It has access to the page's JavaScript including CodeMirror instances
 // Communicates with content.js (isolated world) via window.postMessage
