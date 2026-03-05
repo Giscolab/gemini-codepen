@@ -1,25 +1,30 @@
 # Chrome Code
 
-Extension Chrome (Manifest V3).
-Ajoute un panneau DevTools pour l’édition assistée par IA des éditeurs CodePen (HTML/CSS/JS).
+Extension Chrome (Manifest V3) qui ajoute un panneau DevTools pour assister l’édition de pens CodePen (HTML/CSS/JS) avec des modèles IA.
 
 ![Chrome Code Screenshot](screenshot.jpg)
 
-## Vue d’ensemble
+## État actuel du projet
 
-Fonctionnement:
+Le projet est opérationnel avec :
 
-1. Lecture du code courant depuis CodePen (HTML/CSS/JS).
-2. Construction d’un prompt système avec l’état réel de l’éditeur.
-3. Appel du provider IA sélectionné.
-4. Parsing des blocs `[UPDATE_*]` avec paires `<<<SEARCH>>>` / `<<<REPLACE>>>`.
-5. Application des remplacements valides dans CodeMirror + surlignage temporaire des lignes modifiées.
+- un panneau DevTools « Chrome Code » ;
+- lecture/écriture du code CodePen via un pont `background -> content -> inject` ;
+- application de patches incrémentaux basés sur des blocs `[UPDATE_*]` et paires `<<<SEARCH>>>` / `<<<REPLACE>>>` ;
+- support de plusieurs fournisseurs cloud (OpenAI, Anthropic, Gemini, Mistral, DeepSeek, Groq, Perplexity, Together, OpenRouter, xAI) ;
+- un mode local basé sur l’API expérimentale Chrome `LanguageModel`.
 
-Périmètre:
+> Note: les entrées UI `local-ollama`, `local-lmstudio` et `local-vllm` pointent actuellement toutes vers le même backend local `LanguageModel` (pas vers des serveurs Ollama/LM Studio/vLLM externes).
 
-- Un Pen CodePen actif.
-- Édition incrémentale par remplacements exacts.
-- Pas de gestion multi-fichiers/projet.
+## Fonctionnement
+
+1. Le panel récupère le code courant (`GET_CODE`) depuis l’onglet inspecté.
+2. Le prompt système est construit avec l’état courant du code + options utilisateur (mode, scopes, refactor-only, erreurs console récentes).
+3. Un appel IA est lancé (`CALL_MODEL` pour cloud, `CALL_LOCAL` pour local).
+4. La réponse est parsée :
+   - blocs `[UPDATE_HTML]`, `[UPDATE_CSS]`, `[UPDATE_JS]` ;
+   - extraction des sections `SEARCH/REPLACE`.
+5. Les remplacements valides sont appliqués localement, puis poussés vers CodePen (`UPDATE_CODE`) avec surlignage temporaire des lignes modifiées.
 
 ## Architecture
 
@@ -32,164 +37,75 @@ Content script isolé (content.js)
   ↕ window.postMessage
 Script main world (inject.js)
   ↕
-CodeMirror CodePen (.box-html/.box-css/.box-js)
+CodePen editors (CodeMirror 5 et CodeMirror 6)
 ```
 
-Composants:
+Fichiers principaux :
 
-- `devtools.js` : création du panneau DevTools `Chrome Code`.
-- `panel.js` : orchestration UI, état, prompt, parsing/appli des patches.
-- `background.js` : broker messages + appels IA (cloud/local).
-- `content.js` : pont `runtime` ↔ `window.postMessage`.
-- `inject.js` : accès direct à CodeMirror dans le main world.
-- `js/agents/*` : abstraction provider (`Agent`, `LocalAgent`).
+- `devtools.js` : crée le panneau DevTools.
+- `panel.html` / `panel.css` / `panel.js` : UI, réglages, conversation, orchestration patchs.
+- `background.js` : routage, appels fournisseurs IA, gestion du mode local.
+- `content.js` : pont extension ↔ page.
+- `inject.js` : accès direct aux éditeurs CodePen dans le main world.
+- `js/updateParser.js` : parsing robuste des blocs `UPDATE_*` et `SEARCH/REPLACE`.
+- `js/agents/Agent.js`, `js/agents/LocalAgent.js` : abstraction client d’appel modèle.
 
-## Contextes d’exécution
+## Modèles / fournisseurs supportés
 
-- **DevTools panel**: UI chat, réglages, état conversationnel, port runtime.
-- **Service worker extension**: routage messages, appels réseau cloud, appels `LanguageModel`.
-- **Content script (isolated world)**: reçoit messages background, relaye vers main world.
-- **Main world script**: lit/écrit CodeMirror, capture erreurs console récentes.
+Le mapping modèle → endpoint est centralisé dans `background.js` (`MODEL_ENDPOINTS`).
 
-## Flux de messages
+Exemples de modèles exposés dans l’UI :
 
-Initialisation:
+- **Local**: `local-ollama`, `local-lmstudio`, `local-vllm` (backend `LanguageModel`).
+- **OpenAI**: `gpt-4o`, `gpt-4.1`, `gpt-deep-research`.
+- **Anthropic**: `claude-sonnet`, `claude-opus`.
+- **Google**: `gemini-free`, `gemini-pro`.
+- **OpenAI-compatible**: DeepSeek, Mistral, Perplexity, Groq, Together, OpenRouter, xAI.
 
-1. `panel.js` ouvre un port runtime (`INIT`, `tabId`).
-2. `content.js` envoie `CONTENT_READY` au background.
-3. `background.js` notifie le panel connecté à ce `tabId`.
-4. `panel.js` déclenche `GET_CODE`.
+## Permissions et sécurité
 
-Lecture/écriture code:
+`manifest.json` déclare :
 
-1. Panel → Background: `GET_CODE` / `UPDATE_CODE`.
-2. Background → Tab: `chrome.tabs.sendMessage(...)`.
-3. Content → Inject: `window.postMessage(action)`.
-4. Inject exécute (`getAllCode`, `setCode`, `getConsoleErrors`) puis renvoie la réponse.
+- permissions: `activeTab`, `storage` ;
+- host permissions: CodePen (+ sous-domaines), `cdpn.io`, et endpoints API des fournisseurs listés ci-dessus.
 
-Appel IA:
+Points de sécurité côté rendu/bridge :
 
-1. Panel construit prompt système + historique.
-2. Agent envoie `CALL_MODEL` / `CALL_LOCAL`.
-3. Background exécute l’appel provider.
-4. Background renvoie `MODEL_RESPONSE` / `LOCAL_RESPONSE`.
-5. Panel parse les blocs `UPDATE_*`, applique les remplacements, pousse `UPDATE_CODE`.
+- rendu assistant Markdown via `marked` + sanitation `DOMPurify` ;
+- filtrage strict des messages `window.postMessage` par `source` ;
+- clés API stockées en local (`chrome.storage.local`).
 
-## Modèle d’état
+## Gestion des erreurs implémentée
 
-État principal géré côté `panel.js`:
-
-- `aiProvider`: provider actif (cloud ou `local`).
-- `apiKeys`: clés API par provider stockées en local.
-- `agent`: instance active (`Agent` pour cloud, `LocalAgent` pour local).
-- `conversationHistory`: historique messages envoyé au provider.
-- `currentCode`: snapshot courant `{ html, css, js }`.
-- `assistantMode`: `edit` ou `explain`.
-- `refactorOnly`: booléen, contrainte de non-changement comportemental.
-- `scopes`: activation par cible (`html`, `css`, `js`).
-- `backgroundPort` + `isPortConnected`: état de connectivité runtime.
-
-Persistance:
-
-- `chrome.storage.local`: `apiKeys`, `selectedModel`, `aiProvider`.
-
-## Intégration IA
-
-| Provider | Mode | Clé API requise | Exécution |
-|---|---|---|---|
-| Cloud (modèle sélectionné) | Cloud | Oui (selon provider) | `fetch` depuis `background.js` via `CALL_MODEL` |
-| Local | Navigateur | Non | `LanguageModel` dans `background.js` |
-
-Détails techniques:
-
-- Cloud:
-  - Résolution provider par `MODEL_ENDPOINTS` + `resolveProviderFromModelConfig(...)`
-  - Route unique: `CALL_MODEL`
-- Local:
-  - Vérifie `LanguageModel` + `LanguageModel.availability()`
-  - Session éphémère via `LanguageModel.create(...)` puis `session.prompt(...)`
-
-Protocole de patch imposé:
-
-- Blocs: `[UPDATE_HTML]`, `[UPDATE_CSS]`, `[UPDATE_JS]`
-- Paires internes: `<<<SEARCH>>>` / `<<<REPLACE>>>`
-- Règles:
-  - correspondance exacte,
-  - refus des occurrences ambiguës,
-  - signalement des `SEARCH` introuvables,
-  - application partielle des remplacements valides.
-
-
-## Configuration API
-
-Permissions + endpoints:
-
-- Pour Grok/xAI, l'extension utilise `https://api.x.ai/*` dans `host_permissions` et la constante `XAI_CHAT_COMPLETIONS_URL` côté service worker.
-- À date, la documentation fournisseur expose `api.x.ai` comme hostname API; aucun hostname alternatif n'est ajouté ici tant qu'il n'est pas officiellement documenté.
-- **Note:** si le domaine fournisseur change, mettre à jour **à la fois** `host_permissions` (dans `manifest.json`) et la constante d'endpoint (dans `background.js`).
-
-## Modèle de sécurité
-
-Permissions (`manifest.json`):
-
-- Extension: `activeTab`, `storage`
-- Hosts: CodePen + Anthropic API + Google Generative Language API
-
-Isolation et surface d’échange:
-
-- Accès DOM/CodeMirror uniquement via `inject.js` en main world.
-- Pont inter-contextes via `window.postMessage` avec tags `source` dédiés.
-- Le script injecté ignore les messages hors fenêtre courante (`event.source !== window`).
-
-Rendu UI:
-
-- Markdown assistant: `marked` + sanitization `DOMPurify`.
-- Blocs code: échappement HTML avant insertion.
-
-Données:
-
-- Clés API stockées localement (`chrome.storage.local`).
-- En mode cloud, prompt + contexte code sont envoyés au provider choisi.
-- Aucun backend applicatif propre au repo.
-
-## Gestion des défaillances
-
-Mécanismes implémentés:
-
-- **Perte de port runtime**: reconnexion automatique panel (retry ~1s).
-- **Timeout requête provider**: timeout agent (30s cloud, 60s local).
-- **Timeout bridge content↔inject**: résolution nulle après 3s.
-- **Éditeurs non prêts**: boucle de vérification (jusqu’à 10 tentatives, 1s).
-- **Patch ambigu**: rejet si `SEARCH` présent plusieurs fois.
-- **Patch introuvable**: erreur remontée + message système + feedback dans historique.
-- **Provider local indisponible/téléchargement en cours**: erreurs explicites.
+- reconnexion automatique du port runtime côté panel ;
+- timeout des appels agents (45s cloud, 60s local) ;
+- timeout du bridge content/inject ;
+- vérification de disponibilité du modèle local (`LanguageModel.availability()`) ;
+- rejet des patches ambigus ou introuvables.
 
 ## Développement
 
-Arborescence:
+### Charger l’extension localement
 
-- `manifest.json`
-- `devtools.html`, `devtools.js`
-- `panel.html`, `panel.css`, `panel.js`
-- `background.js`
-- `content.js`
-- `inject.js`
-- `js/agents/Agent.js`, `LocalAgent.js`
+1. Ouvrir `chrome://extensions`
+2. Activer **Developer mode**
+3. Cliquer **Load unpacked**
+4. Sélectionner ce dossier
 
-Chargement local:
+### Vérification rapide
 
-1. `chrome://extensions`
-2. Activer *Developer mode*
-3. *Load unpacked*
-4. Sélectionner le dossier du repo
+Le parser est testé avec Node :
 
-## Limitations
+```bash
+node tests/updateParser.test.js
+```
 
-- Couplage à la structure DOM CodePen et à CodeMirror (`.box-html/.box-css/.box-js`).
-- Fiabilité dépendante de la qualité des blocs `SEARCH/REPLACE` générés.
-- Modifications massives en une passe: risque accru d’échecs de matching.
-- Mode local dépend des capacités Chrome (`LanguageModel`) et de flags expérimentaux.
-- Conçu pour un Pen actif; pas de synchronisation multi-onglets/projets.
+## Limitations connues
+
+- Fort couplage à la structure DOM CodePen.
+- Pas de gestion multi-fichiers/projets hors contexte d’un pen actif.
+- L’édition incrémentale dépend de la qualité des blocs `SEARCH/REPLACE` fournis par le modèle.
+- Le mode local dépend des fonctionnalités IA expérimentales de Chrome.
 
 ## Licence
 
