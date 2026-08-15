@@ -125,12 +125,28 @@ if (window.top !== window) {
   // Monitor for CodePen editor initialization
   // Sometimes editors aren't ready immediately
   let retryCount = 0;
-  const maxRetries = 10;
+  const maxRetries = 60;
 
   async function checkEditorsReadyLoop() {
-    const ready = await checkEditorsReady();
+    let ready = false;
+
+    try {
+      ready = await checkEditorsReady();
+    } catch (error) {
+      // The MAIN-world bridge and CodePen's editor do not always initialize in
+      // the same order. A transient timeout must not permanently stop probing.
+      console.debug('[Chrome Code] editor readiness probe failed; retrying', error);
+    }
+
     if (ready) {
-      chrome.runtime.sendMessage({ type: 'CONTENT_READY' });
+      try {
+        const notification = chrome.runtime.sendMessage({ type: 'CONTENT_READY' });
+        notification?.catch?.((error) => {
+          console.debug('[Chrome Code] CONTENT_READY notification failed', error);
+        });
+      } catch (error) {
+        console.debug('[Chrome Code] extension context unavailable', error);
+      }
     } else if (retryCount < maxRetries) {
       retryCount++;
       setTimeout(checkEditorsReadyLoop, 1000);
