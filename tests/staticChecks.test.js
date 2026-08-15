@@ -15,6 +15,7 @@ const firstPartyScripts = [
   'js/codepenEditorAdapter.js',
   'js/agents/Agent.js',
   'js/agents/LocalAgent.js',
+  'js/editProtocol.js',
   'js/patchEngine.js',
   'js/updateParser.js'
 ];
@@ -61,7 +62,8 @@ test('browser globals load in panel dependency order', () => {
     'js/agents/Agent.js',
     'js/agents/LocalAgent.js',
     'js/updateParser.js',
-    'js/patchEngine.js'
+    'js/patchEngine.js',
+    'js/editProtocol.js'
   ];
 
   for (const relativePath of scripts) {
@@ -76,4 +78,5 @@ test('browser globals load in panel dependency order', () => {
   assert.equal(vm.runInContext('typeof LocalAgent', context), 'function');
   assert.equal(vm.runInContext('typeof UpdateParser', context), 'object');
   assert.equal(vm.runInContext('typeof PatchEngine', context), 'object');
+  assert.equal(vm.runInContext('typeof EditProtocol', context), 'object');
 });

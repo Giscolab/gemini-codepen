@@ -215,7 +215,10 @@ async function callGeminiModel({ apiKey, model, systemPrompt, messages }) {
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: geminiMessages,
-      generationConfig: { maxOutputTokens: 8192 }
+      generationConfig: {
+        maxOutputTokens: 8192,
+        temperature: 0.1
+      }
     })
   });
 
