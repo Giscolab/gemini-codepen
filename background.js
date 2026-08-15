@@ -3,6 +3,62 @@
 
 // Keep track of active connections
 const connections = new Map();
+const CLOUD_REQUEST_TIMEOUT_MS = 42000;
+
+function getErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error || 'Unknown error');
+}
+
+function postError(port, requestId, error) {
+  port.postMessage({
+    type: 'ERROR',
+    requestId,
+    error: getErrorMessage(error)
+  });
+}
+
+async function readApiError(response, fallbackMessage) {
+  let rawBody = '';
+
+  try {
+    rawBody = await response.text();
+  } catch (error) {
+    return `${fallbackMessage} (HTTP ${response.status || 'unknown'})`;
+  }
+
+  if (rawBody) {
+    try {
+      const data = JSON.parse(rawBody);
+      const structuredMessage = data?.error?.message || data?.message || data?.error;
+      if (typeof structuredMessage === 'string' && structuredMessage.trim()) {
+        return structuredMessage.trim();
+      }
+    } catch (error) {
+      // Non-JSON provider and proxy errors are common; use their text below.
+    }
+
+    const textMessage = rawBody.replace(/\s+/g, ' ').trim();
+    if (textMessage) return textMessage.slice(0, 500);
+  }
+
+  return `${fallbackMessage} (HTTP ${response.status || 'unknown'})`;
+}
+
+async function fetchWithTimeout(url, options) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), CLOUD_REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error('Provider request timeout');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 const DEEPSEEK_CHAT_COMPLETIONS_URL = 'https://api.deepseek.com/chat/completions';
 const MISTRAL_CHAT_COMPLETIONS_URL = 'https://api.mistral.ai/v1/chat/completions';
@@ -36,7 +92,7 @@ const MODEL_ENDPOINTS = {
 };
 
 async function callOpenAICompatible({ url, apiKey, model, systemPrompt, messages, extraHeaders = {} }) {
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -54,8 +110,7 @@ async function callOpenAICompatible({ url, apiKey, model, systemPrompt, messages
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || error.message || 'API request failed');
+    throw new Error(await readApiError(response, 'API request failed'));
   }
 
   const data = await response.json();
@@ -154,7 +209,7 @@ async function callGeminiModel({ apiKey, model, systemPrompt, messages }) {
     parts: [{ text: msg.content }]
   }));
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+  const response = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -165,8 +220,7 @@ async function callGeminiModel({ apiKey, model, systemPrompt, messages }) {
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'API request failed');
+    throw new Error(await readApiError(response, 'Gemini API request failed'));
   }
 
   const data = await response.json();
@@ -176,7 +230,7 @@ async function callGeminiModel({ apiKey, model, systemPrompt, messages }) {
 }
 
 async function callAnthropicModel({ apiKey, model, systemPrompt, messages }) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -188,8 +242,7 @@ async function callAnthropicModel({ apiKey, model, systemPrompt, messages }) {
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'API request failed');
+    throw new Error(await readApiError(response, 'Anthropic API request failed'));
   }
 
   const data = await response.json();
@@ -268,15 +321,18 @@ chrome.runtime.onConnect.addListener((port) => {
         const response = await chrome.tabs.sendMessage(message.tabId, {
           type: 'GET_CODE'
         });
+
+        if (!response?.success || !response.code || typeof response.code !== 'object') {
+          throw new Error(response?.error || 'Unable to read the CodePen editors');
+        }
+
         port.postMessage({
           type: 'CODE_DATA',
+          requestId: message.requestId,
           data: response
         });
       } catch (error) {
-        port.postMessage({
-          type: 'ERROR',
-          error: error.message
-        });
+        postError(port, message.requestId, error);
       }
     }
 
@@ -288,11 +344,13 @@ chrome.runtime.onConnect.addListener((port) => {
         });
         port.postMessage({
           type: 'CONSOLE_ERRORS',
+          requestId: message.requestId,
           errors: response?.errors || []
         });
       } catch (error) {
         port.postMessage({
           type: 'CONSOLE_ERRORS',
+          requestId: message.requestId,
           errors: []
         });
       }
@@ -307,15 +365,18 @@ chrome.runtime.onConnect.addListener((port) => {
           code: message.code,
           changedLines: message.changedLines
         });
+
+        if (!response?.success) {
+          throw new Error(response?.error || `Unable to update the ${message.editor} editor`);
+        }
+
         port.postMessage({
           type: 'UPDATE_RESULT',
-          success: response.success
+          requestId: message.requestId,
+          success: true
         });
       } catch (error) {
-        port.postMessage({
-          type: 'ERROR',
-          error: error.message
-        });
+        postError(port, message.requestId, error);
       }
     }
 
@@ -326,9 +387,12 @@ chrome.runtime.onConnect.addListener((port) => {
           throw new Error(`Unsupported model: ${message.model}`);
         }
 
+        if (typeof message.apiKey !== 'string' || !message.apiKey.trim()) {
+          throw new Error('Missing API key');
+        }
+
         const chatMessages = (message.messages || []).filter((msg) => msg.role === 'user' || msg.role === 'assistant');
         const provider = resolveProviderFromModelConfig(modelConfig);
-        console.log('[CALL_MODEL]', message.model, provider);
         const responseText = await callProvider({
           provider,
           apiKey: message.apiKey,
@@ -338,83 +402,13 @@ chrome.runtime.onConnect.addListener((port) => {
           url: modelConfig.url
         });
 
-        port.postMessage({ type: 'MODEL_RESPONSE', response: responseText });
-      } catch (error) {
-        port.postMessage({ type: 'ERROR', error: error.message });
-      }
-    }
-
-
-    if (message.type === 'CHECK_LOCAL_AI') {
-      // Check if Prompt API is available
-      try {
-        const available = typeof LanguageModel !== 'undefined';
         port.postMessage({
-          type: 'LOCAL_AI_STATUS',
-          available
+          type: 'MODEL_RESPONSE',
+          requestId: message.requestId,
+          response: responseText
         });
       } catch (error) {
-        port.postMessage({
-          type: 'LOCAL_AI_STATUS',
-          available: false
-        });
-      }
-    }
-
-    if (message.type === 'CALL_LOCAL') {
-      // Call Prompt API from background
-      try {
-        if ( typeof LanguageModel === 'undefined' ) {
-          throw new Error( 'Built-in AI not available. Enable chrome://flags/#prompt-api-for-gemini-nano' );
-        }
-
-        const availability = await LanguageModel.availability();
-
-        if ( availability === 'unavailable' ) {
-          throw new Error( 'Built-in AI model unavailable. Check chrome://flags' );
-        }
-
-        if ( availability === 'downloading' ) {
-          throw new Error( 'Built-in AI model is downloading. Please wait and try again.' );
-        }
-
-        // Convert messages to Prompt API format
-        const promptMessages = message.messages.map(msg => ({
-          role: msg.role === 'assistant' ? 'assistant' : 'user',
-          content: msg.content
-        }));
-
-        // Create session with system prompt
-        const session = await LanguageModel.create( {
-          initialPrompts: [
-            { role: 'system', content: message.systemPrompt },
-            ...promptMessages
-          ]
-        } );
-
-        // Get the last user message
-        const lastMessage = promptMessages[ promptMessages.length - 1 ];
-
-        if ( !lastMessage || lastMessage.role !== 'user' ) {
-          throw new Error( 'No user message to send' );
-        }
-
-        // Send message and get response
-        const response = await session.prompt( lastMessage.content );
-
-        // Destroy session after use
-        session.destroy();
-
-        port.postMessage({
-          type: 'LOCAL_RESPONSE',
-          response
-        });
-
-      } catch (error) {
-        port.postMessage({
-          type: 'ERROR',
-          error: error.message
-        });
+        postError(port, message.requestId, error);
       }
     }
   });
@@ -430,14 +424,16 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 // Handle messages from content scripts
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'CONTENT_READY') {
-    const port = connections.get(sender.tab?.id);
-    if (port) {
-      port.postMessage({
-        type: 'CONTENT_READY'
-      });
-    }
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if (!message || message.type !== 'CONTENT_READY') return false;
+
+  const port = connections.get(sender.tab?.id);
+  if (port) {
+    port.postMessage({
+      type: 'CONTENT_READY'
+    });
   }
-  return true;
+
+  // This notification is synchronous and intentionally has no response.
+  return false;
 });

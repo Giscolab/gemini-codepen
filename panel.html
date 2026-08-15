@@ -17,9 +17,7 @@
         <div id=provider-groups>
           <div class="provider-group active" data-group=free><label for=free-provider>Modèle gratuit :</label><select id=free-provider aria-label="Fournisseur gratuit">
               <optgroup label="Local (100% gratuit)">
-                <option value=local-ollama>Ollama (Local)
-                <option value=local-lmstudio>LM Studio
-                <option value=local-vllm>vLLM
+                <option value=local-chrome>Chrome AI (Gemini Nano)
               </optgroup>
               <optgroup label=Google>
                 <option value=gemini-free>Gemini Free
@@ -98,6 +96,7 @@
   <script src=js/agents/Agent.js></script>
   <script src=js/agents/LocalAgent.js></script>
   <script src=js/updateParser.js></script>
+  <script src=js/patchEngine.js></script>
   <script src=panel.js></script>
 </body>
 

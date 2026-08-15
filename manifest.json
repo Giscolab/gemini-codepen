@@ -34,10 +34,10 @@
         "https://*.cdpn.io/*"
       ],
       "js": [
+        "js/codepenEditorAdapter.js",
         "inject.js"
       ],
       "run_at": "document_start",
-      "all_frames": true,
       "world": "MAIN"
     },
     {
@@ -50,8 +50,7 @@
       "js": [
         "content.js"
       ],
-      "run_at": "document_idle",
-      "all_frames": true
+      "run_at": "document_idle"
     }
   ],
   "icons": {
