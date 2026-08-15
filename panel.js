@@ -33,12 +33,12 @@ let agent = null;
 let assistantMode = 'edit';
 let refactorOnly = false;
 let selectedModel = '';
+let isRequestInFlight = false;
+let requestSequence = 0;
 
 // Provider configuration
 const MODEL_CONFIG = {
-  'local-ollama': { provider: 'local', keyId: null, label: 'Ollama (Local)' },
-  'local-lmstudio': { provider: 'local', keyId: null, label: 'LM Studio' },
-  'local-vllm': { provider: 'local', keyId: null, label: 'vLLM' },
+  'local-chrome': { provider: 'local', keyId: null, label: 'Chrome AI (Gemini Nano)' },
   'gemini-free': { provider: 'gemini', keyId: 'gemini', label: 'Gemini Free' },
   'qwen-2.5-coder': { provider: 'openrouter', keyId: 'openrouter', label: 'Qwen 2.5 Coder' },
   'deepseek-coder': { provider: 'deepseek', keyId: 'deepseek', label: 'DeepSeek Coder' },
@@ -59,6 +59,12 @@ const MODEL_CONFIG = {
   'k2.5': { provider: 'openrouter', keyId: 'openrouter', label: 'K2.5' },
   'together-mixtral': { provider: 'together', keyId: 'together', label: 'Mixtral (Together)' }
 };
+
+const LEGACY_LOCAL_MODELS = new Set([
+  'local-ollama',
+  'local-lmstudio',
+  'local-vllm'
+]);
 
 const KEY_HELP = {
   claude: 'Clé Anthropic',
@@ -179,24 +185,13 @@ function initConnection() {
       // Clear chat on page reload
       messagesContainer.innerHTML = '';
       conversationHistory = [];
-      updateStatus(true);
-      refreshCode();
+      refreshCode().catch((error) => {
+        updateStatus(false);
+        addSystemMessage('Error: ' + error.message);
+      });
     }
 
-    if (message.type === 'CODE_DATA') {
-      currentCode = message.data.code;
-      updateStatus(true);
-    }
-
-    if (message.type === 'LOCAL_AI_STATUS') {
-      if (message.available) {
-        apiKeyHelp.innerHTML = 'Uses built-in Chrome AI.';
-      } else {
-        apiKeyHelp.innerHTML = 'Uses built-in Chrome AI.<br><br>Enable these flags:<br><code>chrome://flags/#prompt-api-for-gemini-nano</code><br><code>chrome://flags/#optimization-guide-on-device-model</code>';
-      }
-    }
-
-    if (message.type === 'ERROR') {
+    if (message.type === 'ERROR' && !message.requestId) {
       addSystemMessage('Error: ' + message.error);
     }
   });
@@ -213,7 +208,7 @@ function initConnection() {
   });
 
   setTimeout(() => {
-    refreshCode();
+    refreshCode().catch(() => updateStatus(false));
   }, 1000);
 }
 
@@ -228,13 +223,25 @@ async function loadSettings() {
   }
 
   if (result.selectedModel) {
-    selectedModel = result.selectedModel;
+    selectedModel = LEGACY_LOCAL_MODELS.has(result.selectedModel)
+      ? 'local-chrome'
+      : result.selectedModel;
+
+    if (selectedModel !== result.selectedModel) {
+      await chrome.storage.local.set({ selectedModel });
+    }
+
     if (freeProviderSelect.querySelector(`option[value="${selectedModel}"]`)) {
       freeProviderSelect.value = selectedModel;
       showProviderTab('free');
     } else if (paidProviderSelect.querySelector(`option[value="${selectedModel}"]`)) {
       paidProviderSelect.value = selectedModel;
       showProviderTab('paid');
+    } else {
+      const shouldUseFreeTab = aiProvider === 'local' || aiProvider === 'gemini';
+      showProviderTab(shouldUseFreeTab ? 'free' : 'paid');
+      selectedModel = shouldUseFreeTab ? freeProviderSelect.value : paidProviderSelect.value;
+      await chrome.storage.local.set({ selectedModel });
     }
   } else {
     const shouldUseFreeTab = aiProvider === 'local' || aiProvider === 'gemini';
@@ -252,19 +259,108 @@ function createAgent() {
   createModelAgent();
 }
 
+function createRequestId() {
+  requestSequence += 1;
+
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+    return `panel-${globalThis.crypto.randomUUID()}`;
+  }
+
+  return `panel-${Date.now()}-${requestSequence}`;
+}
+
+function requestBackground(type, responseType, payload = {}, timeout = 5000) {
+  if (!backgroundPort || !isPortConnected) {
+    return Promise.reject(new Error('Not connected to background script'));
+  }
+
+  const port = backgroundPort;
+  const requestId = createRequestId();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutId;
+
+    const cleanup = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      port.onMessage.removeListener(messageHandler);
+      port.onDisconnect.removeListener(disconnectHandler);
+    };
+
+    const settle = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback(value);
+    };
+
+    const messageHandler = (message) => {
+      if (!message || message.requestId !== requestId) return;
+
+      if (message.type === responseType) {
+        settle(resolve, message);
+      } else if (message.type === 'ERROR') {
+        settle(reject, new Error(message.error || `${type} failed`));
+      }
+    };
+
+    const disconnectHandler = () => {
+      settle(reject, new Error('Connection lost. Please try again.'));
+    };
+
+    port.onMessage.addListener(messageHandler);
+    port.onDisconnect.addListener(disconnectHandler);
+    timeoutId = setTimeout(() => {
+      settle(reject, new Error(`${type} timed out`));
+    }, timeout);
+
+    try {
+      port.postMessage({ ...payload, type, requestId });
+    } catch (error) {
+      settle(reject, error);
+    }
+  });
+}
+
+async function updateLocalAiHelp() {
+  const modelAtStart = selectedModel;
+
+  if (!('LanguageModel' in globalThis)) {
+    apiKeyHelp.textContent = 'Chrome AI est indisponible dans ce navigateur.';
+    return;
+  }
+
+  apiKeyHelp.textContent = 'Vérification de Chrome AI…';
+
+  try {
+    const availability = await globalThis.LanguageModel.availability();
+    if (selectedModel !== modelAtStart) return;
+
+    if (availability === 'unavailable') {
+      apiKeyHelp.textContent = 'Chrome AI est indisponible sur cet appareil.';
+    } else if (availability === 'downloading') {
+      apiKeyHelp.textContent = 'Le modèle Chrome AI est en cours de téléchargement.';
+    } else if (availability === 'downloadable') {
+      apiKeyHelp.textContent = 'Le modèle Chrome AI sera téléchargé au premier usage.';
+    } else {
+      apiKeyHelp.textContent = 'Chrome AI est prêt et s’exécute localement.';
+    }
+  } catch (error) {
+    if (selectedModel === modelAtStart) {
+      apiKeyHelp.textContent = `Impossible de vérifier Chrome AI : ${error.message}`;
+    }
+  }
+}
+
 // Update API key help text based on selected model
 function updateApiKeyHelp() {
   const modelConfig = getCurrentModelConfig();
   if (!modelConfig || modelConfig.provider === 'local') {
-    settingsTitle.textContent = 'Local Settings';
+    settingsTitle.textContent = 'Paramètres Chrome AI';
     apiKeyInput.style.display = 'none';
     apiKeyLabel.style.display = 'none';
     saveSettingsBtn.style.display = 'none';
-    apiKeyHelp.innerHTML = 'Uses built-in Chrome AI.';
-
-    if (backgroundPort && isPortConnected) {
-      backgroundPort.postMessage({ type: 'CHECK_LOCAL_AI' });
-    }
+    void updateLocalAiHelp();
     return;
   }
 
@@ -316,22 +412,22 @@ function updateStatus(connected) {
   }
 }
 
-// Request code from CodePen
-function refreshCode() {
-  if (backgroundPort && isPortConnected) {
-    try {
-      backgroundPort.postMessage({
-        type: 'GET_CODE',
-        tabId: tabId
-      });
-    } catch (error) {
-      console.error('Error sending GET_CODE message:', error);
-      if (error.message.includes('disconnected port')) {
-        isPortConnected = false;
-        initConnection();
-      }
-    }
+// Request code from CodePen and wait for the matching response.
+async function refreshCode() {
+  const message = await requestBackground('GET_CODE', 'CODE_DATA', { tabId }, 5000);
+  const code = message?.data?.code;
+
+  if (!code || typeof code !== 'object') {
+    throw new Error('Invalid code payload received from CodePen');
   }
+
+  currentCode = {
+    html: typeof code.html === 'string' ? code.html : '',
+    css: typeof code.css === 'string' ? code.css : '',
+    js: typeof code.js === 'string' ? code.js : ''
+  };
+  updateStatus(true);
+  return currentCode;
 }
 
 // Add message to chat
@@ -503,25 +599,17 @@ function detectProjectContextHints(code) {
 }
 
 async function getConsoleErrors() {
-  if (!backgroundPort || !isPortConnected) return [];
-
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      backgroundPort.onMessage.removeListener(listener);
-      resolve([]);
-    }, 1000);
-
-    const listener = (message) => {
-      if (message.type === 'CONSOLE_ERRORS') {
-        clearTimeout(timeout);
-        backgroundPort.onMessage.removeListener(listener);
-        resolve(Array.isArray(message.errors) ? message.errors : []);
-      }
-    };
-
-    backgroundPort.onMessage.addListener(listener);
-    backgroundPort.postMessage({ type: 'GET_CONSOLE_ERRORS', tabId });
-  });
+  try {
+    const message = await requestBackground(
+      'GET_CONSOLE_ERRORS',
+      'CONSOLE_ERRORS',
+      { tabId },
+      1500
+    );
+    return Array.isArray(message.errors) ? message.errors : [];
+  } catch (error) {
+    return [];
+  }
 }
 
 function getSelectedScopes() {
@@ -534,18 +622,22 @@ function getSelectedScopes() {
 
 // Send message to AI provider
 async function sendMessage() {
+  if (isRequestInFlight) return;
+
   const message = userInput.value.trim();
   if (!message) return;
 
   if (!agent) {
     const providerName = getCurrentModelConfig()?.label || 'provider';
     const message = getCurrentModelConfig()?.provider === 'local'
-      ? 'Local AI not available. Please check Chrome flags.'
+      ? 'Chrome AI est indisponible. Vérifiez son état dans les paramètres.'
       : `Please set your ${providerName} API key in settings`;
     addSystemMessage(message);
     settingsPanel.classList.remove('hidden');
     return;
   }
+
+  isRequestInFlight = true;
 
   // Add user message to chat
   addMessage('user', message);
@@ -555,42 +647,20 @@ async function sendMessage() {
   // Add thinking indicator
   const thinkingMessage = addThinkingMessage(getCurrentModelConfig()?.label || 'AI');
 
-  // Refresh code before sending
-  await new Promise(resolve => {
-    if (backgroundPort && isPortConnected) {
-      try {
-        backgroundPort.postMessage({
-          type: 'GET_CODE',
-          tabId: tabId
-        });
-        // Wait a bit for the response
-        setTimeout(resolve, 500);
-      } catch (error) {
-        console.error('Error sending GET_CODE message:', error);
-        if (error.message.includes('disconnected port')) {
-          isPortConnected = false;
-          initConnection();
-        }
-        resolve();
-      }
-    } else {
-      resolve();
-    }
-  });
-
-  // Build system prompt with current code
-  const projectHints = detectProjectContextHints(currentCode);
-  const consoleErrors = await getConsoleErrors();
-  const scopes = getSelectedScopes();
-  const systemPrompt = buildSystemPrompt({ projectHints, consoleErrors, scopes });
-
-  // Add to conversation history
-  conversationHistory.push({
-    role: 'user',
-    content: message
-  });
-
   try {
+    // Never call a model with a guessed or stale editor snapshot.
+    await refreshCode();
+
+    const projectHints = detectProjectContextHints(currentCode);
+    const consoleErrors = await getConsoleErrors();
+    const scopes = getSelectedScopes();
+    const systemPrompt = buildSystemPrompt({ projectHints, consoleErrors, scopes });
+
+    conversationHistory.push({
+      role: 'user',
+      content: message
+    });
+
     // Call AI provider API
     const response = await agent.sendMessage(systemPrompt, conversationHistory);
 
@@ -607,27 +677,50 @@ async function sendMessage() {
       content: responseWithoutCode || 'Code updated.'
     });
 
-    // Check if we need to update code
-    const errors = await processAssistantResponse(response, scopes);
+    const updateBlocks = UpdateParser.extractUpdateBlocks(response);
+    const enabledMarkers = new Set(
+      Object.entries(scopes)
+        .filter(([, enabled]) => enabled)
+        .map(([scope]) => `UPDATE_${scope.toUpperCase()}`)
+    );
+    const applicableUpdateBlocks = updateBlocks.filter((block) => enabledMarkers.has(block.marker));
 
-    // If there were search/replace errors, add them to conversation history
-    if (errors && errors.length > 0) {
-      const errorMessage = 'The following SEARCH blocks could not be found in the current code:\n\n' +
-        errors.join('\n\n') +
-        '\n\nPlease check the CURRENT CODE section and try again with the exact code that exists.';
+    if (updateBlocks.length === 0) {
+      if (assistantMode === 'edit') {
+        addSystemMessage(
+          'Aucune injection effectuée : la réponse du modèle ne contient aucun bloc UPDATE_HTML, UPDATE_CSS ou UPDATE_JS.'
+        );
+      }
+    } else if (applicableUpdateBlocks.length === 0) {
+      addSystemMessage(
+        'Aucune injection effectuée : les blocs UPDATE reçus ciblent uniquement des éditeurs désactivés dans les scopes.'
+      );
+    } else {
+      // The user may edit the pen while the model is responding. Re-read the
+      // editors so SEARCH blocks are applied only to the latest state.
+      await refreshCode();
 
-      conversationHistory.push({
-        role: 'user',
-        content: errorMessage
-      });
+      const errors = await processAssistantResponse(response, scopes);
+
+      if (errors && errors.length > 0) {
+        const errorMessage = 'The following SEARCH blocks could not be applied to the current code:\n\n' +
+          errors.join('\n\n') +
+          '\n\nPlease check the CURRENT CODE section and try again with exact, unique text.';
+
+        conversationHistory.push({
+          role: 'user',
+          content: errorMessage
+        });
+        addSystemMessage(`Aucune injection effectuée : ${errors.join(' | ')}`);
+      }
     }
 
   } catch (error) {
-    // Remove thinking indicator on error
-    thinkingMessage.remove();
     addSystemMessage('Error: ' + error.message);
     console.error('Error calling AI provider:', error);
   } finally {
+    thinkingMessage.remove();
+    isRequestInFlight = false;
     sendBtn.disabled = false;
   }
 }
@@ -721,113 +814,58 @@ Be concise and helpful. Focus on the specific changes requested.`;
 // Process assistant response and update CodePen if needed
 async function processAssistantResponse(response, scopes = { html: true, css: true, js: true }) {
   const updates = {
-    html: scopes.html ? applySearchReplace(currentCode.html, response, 'UPDATE_HTML') : null,
-    css: scopes.css ? applySearchReplace(currentCode.css, response, 'UPDATE_CSS') : null,
-    js: scopes.js ? applySearchReplace(currentCode.js, response, 'UPDATE_JS') : null
+    html: scopes.html ? PatchEngine.applySearchReplace(currentCode.html, response, 'UPDATE_HTML') : null,
+    css: scopes.css ? PatchEngine.applySearchReplace(currentCode.css, response, 'UPDATE_CSS') : null,
+    js: scopes.js ? PatchEngine.applySearchReplace(currentCode.js, response, 'UPDATE_JS') : null
   };
 
-  const allErrors = [];
+  const allErrors = Object.values(updates)
+    .filter(Boolean)
+    .flatMap((result) => result.errors || []);
 
-  for (const [editor, result] of Object.entries(updates)) {
-    if (result !== null) {
-      if (result.errors && result.errors.length > 0) {
-        allErrors.push(...result.errors);
-      }
-      if (result.code) {
-        // Update our local copy
-        currentCode[editor] = result.code;
-        // Update CodePen with line highlighting
-        await updateCodePenEditor(editor, result.code, result.lines);
-        addSystemMessage(`Updated ${editor.toUpperCase()} editor`);
+  // A response is planned atomically: if one SEARCH is missing or ambiguous,
+  // no editor is touched.
+  if (allErrors.length > 0) return allErrors;
+
+  const operations = Object.entries(updates)
+    .filter(([, result]) => result && result.code !== null)
+    .map(([editor, result]) => ({
+      editor,
+      originalCode: currentCode[editor],
+      newCode: result.code,
+      changedLines: result.lines
+    }));
+
+  const appliedOperations = [];
+
+  try {
+    for (const operation of operations) {
+      await updateCodePenEditor(operation.editor, operation.newCode, operation.changedLines);
+      appliedOperations.push(operation);
+    }
+  } catch (error) {
+    const rollbackFailures = [];
+
+    for (const operation of appliedOperations.reverse()) {
+      try {
+        await updateCodePenEditor(operation.editor, operation.originalCode, []);
+      } catch (rollbackError) {
+        rollbackFailures.push(operation.editor.toUpperCase());
       }
     }
+
+    // Reconcile the local snapshot even when an acknowledgement was lost.
+    await refreshCode().catch(() => {});
+
+    const rollbackDetail = rollbackFailures.length > 0
+      ? ` Rollback failed for: ${rollbackFailures.join(', ')}.`
+      : '';
+    throw new Error(`CodePen update failed: ${error.message}.${rollbackDetail}`);
   }
 
-  return allErrors.length > 0 ? allErrors : null;
-}
-
-// Apply SEARCH/REPLACE blocks to code
-function applySearchReplace(currentCode, responseText, marker) {
-  const updateBlock = UpdateParser.extractUpdateBlocks(responseText)
-    .find((block) => block.marker === marker);
-
-  if (!updateBlock) {
-    return null;
-  }
-
-  const blockContent = updateBlock.content;
-  let newCode = currentCode || '';
-  const sections = UpdateParser.parseSearchReplaceSections(blockContent);
-  const hasSearchReplace = sections.length > 0;
-  let hasChanges = false;
-  const changedLines = new Set();
-  const errors = [];
-
-  for (const section of sections) {
-    const searchText = section.searchText;
-    const replaceText = section.replaceText;
-
-    if (!searchText.trim()) {
-      const startLine = newCode.split('\n').length - 1;
-      const replaceLines = replaceText.split('\n').length;
-
-      newCode += '\n' + replaceText;
-
-      for (let i = 0; i < replaceLines; i++) {
-        changedLines.add(startLine + i);
-      }
-
-      hasChanges = true;
-      continue;
-    }
-
-    const escapedSearch = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const flexibleSearch = escapedSearch.replace(/\s+/g, '\\s+');
-    const regex = new RegExp(flexibleSearch);
-
-    const match = regex.exec(newCode);
-
-    if (match) {
-      const searchIndex = match.index;
-
-      const beforeSearch = newCode.substring(0, searchIndex);
-      const startLine = beforeSearch.split('\n').length - 1;
-      const searchLines = searchText.split('\n').length;
-      const replaceLines = replaceText.split('\n').length;
-
-      for (let i = 0; i < Math.max(searchLines, replaceLines); i++) {
-        changedLines.add(startLine + i);
-      }
-
-      newCode =
-        newCode.substring(0, searchIndex) +
-        replaceText +
-        newCode.substring(searchIndex + match[0].length);
-
-      hasChanges = true;
-
-    } else {
-      const editorName = marker.replace('UPDATE_', '');
-      const errorMsg = `In ${editorName} editor, could not find:\n${searchText}`;
-      errors.push(errorMsg);
-      addSystemMessage(`Could not find text to replace in ${editorName}`);
-    }
-  }
-
-  if (!hasSearchReplace) {
-    return {
-      code: null,
-      lines: [],
-      errors: [`${marker} block found but no valid SEARCH/REPLACE pairs were provided.`]
-    };
-  }
-
-  if (hasChanges) {
-    return { code: newCode, lines: Array.from(changedLines), errors };
-  }
-
-  if (errors.length > 0) {
-    return { code: null, lines: [], errors };
+  for (const operation of operations) {
+    currentCode[operation.editor] = operation.newCode;
+    addSystemMessage(`Updated ${operation.editor.toUpperCase()} editor`);
   }
 
   return null;
@@ -835,26 +873,18 @@ function applySearchReplace(currentCode, responseText, marker) {
 
 // Update CodePen editor
 async function updateCodePenEditor(editor, newCode, changedLines = []) {
-  return new Promise((resolve) => {
-    if (backgroundPort && isPortConnected) {
-      try {
-        backgroundPort.postMessage({
-          type: 'UPDATE_CODE',
-          tabId: tabId,
-          editor: editor,
-          code: newCode,
-          changedLines: changedLines
-        });
-      } catch (error) {
-        console.error('Error sending UPDATE_CODE message:', error);
-        isPortConnected = false;
-        if (error.message.includes('disconnected port')) {
-          initConnection();
-        }
-      }
-    }
-    setTimeout(resolve, 200);
-  });
+  const message = await requestBackground(
+    'UPDATE_CODE',
+    'UPDATE_RESULT',
+    { tabId, editor, code: newCode, changedLines },
+    5000
+  );
+
+  if (message.success !== true) {
+    throw new Error(`The ${editor} editor did not confirm the update`);
+  }
+
+  return true;
 }
 
 // Event listeners
@@ -902,9 +932,17 @@ paidProviderSelect.addEventListener('change', async () => {
   addSystemMessage(`Modèle sélectionné : ${paidProviderSelect.options[paidProviderSelect.selectedIndex].text}`);
 });
 
-// Initialize
-loadSettings();
-initConnection();
+// Initialize in a deterministic order so the selected model and credentials are
+// loaded before the runtime port is attached to an agent.
+async function initialize() {
+  await loadSettings();
+  initConnection();
+}
+
+initialize().catch((error) => {
+  addSystemMessage('Error: ' + error.message);
+  updateStatus(false);
+});
 
 // Check connection status after a delay and show appropriate message
 setTimeout(() => {

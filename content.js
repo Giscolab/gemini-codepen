@@ -5,9 +5,6 @@ if (window.top !== window) {
   // Content script that runs on CodePen pages (in isolated world)
   // Communicates with inject.js (which runs in main world) via window.postMessage
 
-  // Notify background script that content is ready
-  chrome.runtime.sendMessage({ type: 'CONTENT_READY' });
-
   // Message passing between isolated world (content.js) and main world (inject.js)
   let messageId = 0;
   const pendingMessages = new Map();
@@ -18,17 +15,26 @@ if (window.top !== window) {
     if (!message || typeof message !== 'object') return;
     if (message.source !== 'chrome-code-inject') return;
 
-    const resolve = pendingMessages.get(message.id);
-    if (resolve) {
-      resolve(message.result);
+    const pending = pendingMessages.get(message.id);
+    if (pending) {
+      clearTimeout(pending.timeoutId);
       pendingMessages.delete(message.id);
+      pending.resolve(message.result);
     }
   });
 
   function sendToMainWorld(action, data = {}) {
     return new Promise((resolve) => {
       const id = messageId++;
-      pendingMessages.set(id, resolve);
+      const timeoutId = setTimeout(() => {
+        const pending = pendingMessages.get(id);
+        if (pending) {
+          pendingMessages.delete(id);
+          pending.resolve(null);
+        }
+      }, 3000);
+
+      pendingMessages.set(id, { resolve, timeoutId });
 
       window.postMessage({
         source: 'chrome-code-content',
@@ -37,13 +43,6 @@ if (window.top !== window) {
         ...data
       }, '*');
 
-      // Timeout after 3 seconds
-      setTimeout(() => {
-        if (pendingMessages.has(id)) {
-          pendingMessages.delete(id);
-          resolve(null);
-        }
-      }, 3000);
     });
   }
 
@@ -67,10 +66,20 @@ if (window.top !== window) {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'GET_CODE') {
       getAllCode().then(code => {
+        if (!code || typeof code !== 'object') {
+          sendResponse({
+            success: false,
+            error: 'Timed out while reading the CodePen editors'
+          });
+          return;
+        }
+
         sendResponse({
           success: true,
           code: code
         });
+      }).catch(error => {
+        sendResponse({ success: false, error: error.message });
       });
       return true; // Will respond asynchronously
     }
@@ -78,8 +87,11 @@ if (window.top !== window) {
     if (message.type === 'UPDATE_CODE') {
       setCode(message.editor, message.code, message.changedLines).then(success => {
         sendResponse({
-          success: success
+          success: success === true,
+          error: success === true ? undefined : `The ${message.editor} editor rejected the update`
         });
+      }).catch(error => {
+        sendResponse({ success: false, error: error.message });
       });
       return true; // Will respond asynchronously
     }
@@ -90,11 +102,13 @@ if (window.top !== window) {
           success: true,
           errors: errors || []
         });
+      }).catch(error => {
+        sendResponse({ success: false, error: error.message, errors: [] });
       });
       return true;
     }
 
-    return true;
+    return false;
   });
 
   // Monitor for CodePen editor initialization
@@ -104,8 +118,6 @@ if (window.top !== window) {
 
   async function checkEditorsReadyLoop() {
     const ready = await checkEditorsReady();
-    console.log('[Chrome Code] checkReady result:', ready);
-
     if (ready) {
       chrome.runtime.sendMessage({ type: 'CONTENT_READY' });
     } else if (retryCount < maxRetries) {
@@ -122,6 +134,4 @@ if (window.top !== window) {
   } else {
     setTimeout(checkEditorsReadyLoop, 1000);
   }
-
-  console.log('CONTENT SCRIPT LOADED', window.location.href);
 }
