@@ -3,6 +3,7 @@
 Extension non officielle pour Chrome et Microsoft Edge. Elle ajoute un assistant IA aux DevTools afin de lire, expliquer et modifier directement les fichiers HTML, CSS et JavaScript d’un Pen.
 
 Cette version est conçue pour le nouvel éditeur **CodePen 2.0** utilisant CodeMirror 6. Le panneau apparaît actuellement sous le nom **Chrome Code** dans les DevTools.
+![Chrome Code Screenshot](screenshot.jpg)
 
 ## Prérequis
 
