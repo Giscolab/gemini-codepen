@@ -414,7 +414,7 @@ function updateStatus(connected) {
 
 // Request code from CodePen and wait for the matching response.
 async function refreshCode() {
-  const message = await requestBackground('GET_CODE', 'CODE_DATA', { tabId }, 5000);
+  const message = await requestBackground('GET_CODE', 'CODE_DATA', { tabId }, 15000);
   const code = message?.data?.code;
 
   if (!code || typeof code !== 'object') {
@@ -877,7 +877,7 @@ async function updateCodePenEditor(editor, newCode, changedLines = []) {
     'UPDATE_CODE',
     'UPDATE_RESULT',
     { tabId, editor, code: newCode, changedLines },
-    5000
+    10000
   );
 
   if (message.success !== true) {

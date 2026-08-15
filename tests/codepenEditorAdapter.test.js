@@ -32,6 +32,14 @@ test('selects the standard primary file for each legacy scope', () => {
   assert.equal(adapter.selectEditorCandidate(candidates, 'html').id, 'html');
 });
 
+test('selects the primary path inside a CodePen 2.0 tab', () => {
+  assert.equal(
+    adapter.selectPrimaryFilePath(['/src/component.js', '/script.js'], 'js'),
+    '/script.js'
+  );
+  assert.equal(adapter.sameFilePath('/STYLE.css', 'style.css'), true);
+});
+
 test('prefers the file selected in the CodePen URL', () => {
   const candidates = [
     { id: 'component', paths: ['/src/component.js'], active: false },

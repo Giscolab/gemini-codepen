@@ -23,6 +23,13 @@ if (window.top !== window) {
     }
   });
 
+  const MAIN_WORLD_TIMEOUTS = {
+    checkReady: 2000,
+    getAllCode: 12000,
+    setCode: 7000,
+    getConsoleErrors: 1500
+  };
+
   function sendToMainWorld(action, data = {}) {
     return new Promise((resolve) => {
       const id = messageId++;
@@ -32,7 +39,7 @@ if (window.top !== window) {
           pendingMessages.delete(id);
           pending.resolve(null);
         }
-      }, 3000);
+      }, MAIN_WORLD_TIMEOUTS[action] || 3000);
 
       pendingMessages.set(id, { resolve, timeoutId });
 

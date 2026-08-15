@@ -96,6 +96,22 @@
     return PRIMARY_FILE_PRIORITIES[editorType]?.get(getBaseName(filePath)) || 20;
   }
 
+  function selectPrimaryFilePath(filePaths, editorType) {
+    const matchingPaths = (filePaths || [])
+      .filter((filePath) => classifyFilePath(filePath) === editorType)
+      .sort((left, right) => filePriority(editorType, right) - filePriority(editorType, left));
+
+    if (matchingPaths.length === 0) return '';
+    if (
+      matchingPaths.length > 1 &&
+      filePriority(editorType, matchingPaths[0]) === filePriority(editorType, matchingPaths[1])
+    ) {
+      return '';
+    }
+
+    return matchingPaths[0];
+  }
+
   function sameFilePath(left, right) {
     const normalizedLeft = normalizeFilePath(left).replace(/^\//, '');
     const normalizedRight = normalizeFilePath(right).replace(/^\//, '');
@@ -149,6 +165,8 @@
     extractFilePaths,
     getCurrentFilePath,
     normalizeFilePath,
-    selectEditorCandidate
+    sameFilePath,
+    selectEditorCandidate,
+    selectPrimaryFilePath
   };
 }));
