@@ -7,6 +7,10 @@ if (window.top !== window) {
   const recentConsoleErrors = [];
   const MAX_CONSOLE_ERRORS = 10;
   const EDITOR_TYPES = ['html', 'css', 'js'];
+  const CODEPEN_EDITOR_HOST_SELECTOR = 'cp-codemirror-editor';
+  const OPEN_FILE_TAB_SELECTOR = '[role="button"][data-file]';
+  const MODERN_HOST_TIMEOUT_MS = 4000;
+  const MODERN_HOST_POLL_MS = 25;
   const FILE_METADATA_ATTRIBUTES = [
     'data-file',
     'data-file-path',
@@ -31,6 +35,14 @@ if (window.top !== window) {
   });
 
   const API = {
+    _editorOperationTail: Promise.resolve(),
+
+    _runEditorOperation(operation) {
+      const queuedOperation = this._editorOperationTail.then(operation, operation);
+      this._editorOperationTail = queuedOperation.catch(() => undefined);
+      return queuedOperation;
+    },
+
     _isEditorType(editorType) {
       return EDITOR_TYPES.includes(editorType);
     },
@@ -114,11 +126,136 @@ if (window.top !== window) {
     },
 
     _getModernCandidates() {
-      return Array.from(document.querySelectorAll('.cm-editor')).map((element) => ({
-        element,
-        paths: this._collectModernCandidatePaths(element),
-        active: !!document.activeElement && element.contains(document.activeElement)
-      }));
+      const codePenHosts = Array.from(
+        document.querySelectorAll(CODEPEN_EDITOR_HOST_SELECTOR)
+      );
+
+      const hostCandidates = codePenHosts.map((element) => {
+        const shadowRoot = element.shadow || element.shadowRoot;
+        const activeElement = shadowRoot?.activeElement || document.activeElement;
+
+        return {
+          element,
+          paths: this._collectModernCandidatePaths(element),
+          active: element === document.activeElement ||
+            !!activeElement && (
+              element.contains?.(activeElement) ||
+              shadowRoot?.contains?.(activeElement)
+            )
+        };
+      });
+
+      const directCandidates = Array.from(document.querySelectorAll('.cm-editor'))
+        .filter((element) => !element.closest?.(CODEPEN_EDITOR_HOST_SELECTOR))
+        .map((element) => ({
+          element,
+          paths: this._collectModernCandidatePaths(element),
+          active: !!document.activeElement && element.contains(document.activeElement)
+        }));
+
+      return [...hostCandidates, ...directCandidates];
+    },
+
+    _getOpenFileTabs() {
+      if (!editorAdapter) return [];
+
+      return Array.from(document.querySelectorAll(OPEN_FILE_TAB_SELECTOR))
+        .map((element) => {
+          const values = this._metadataValues(element);
+
+          for (const heading of element.querySelectorAll?.('h1, h2, h3, h4, h5, h6') || []) {
+            const text = heading.textContent?.trim();
+            if (text) values.push(text);
+          }
+
+          return {
+            element,
+            paths: editorAdapter.extractFilePaths(values),
+            active: element.getAttribute?.('data-active') === 'true'
+          };
+        })
+        .filter((candidate) => candidate.paths.length > 0);
+    },
+
+    _getActiveModernFilePath() {
+      const activeTab = this._getOpenFileTabs().find((candidate) => candidate.active);
+      if (activeTab?.paths.length === 1) return activeTab.paths[0];
+
+      const activeHost = this._getModernCandidates().find((candidate) => candidate.active)
+        || this._getModernCandidates()[0];
+      return activeHost?.paths.length === 1 ? activeHost.paths[0] : '';
+    },
+
+    _getMountedModernHost(filePath) {
+      if (!editorAdapter || !filePath) return null;
+
+      const matchingCandidates = this._getModernCandidates().filter((candidate) => (
+        candidate.paths.some((candidatePath) => editorAdapter.sameFilePath(candidatePath, filePath))
+      ));
+
+      return matchingCandidates.length === 1 ? matchingCandidates[0].element : null;
+    },
+
+    async _waitForMountedModernHost(filePath, timeout = MODERN_HOST_TIMEOUT_MS) {
+      const deadline = Date.now() + timeout;
+
+      while (Date.now() < deadline) {
+        const host = this._getMountedModernHost(filePath);
+        const activeTab = this._getOpenFileTabs().find((candidate) => (
+          candidate.paths.some((candidatePath) => editorAdapter.sameFilePath(candidatePath, filePath))
+        ));
+
+        if (host && this._getCM6View(host) && activeTab?.active) return host;
+
+        await new Promise((resolve) => {
+          const remaining = Math.max(0, deadline - Date.now());
+          setTimeout(resolve, Math.min(MODERN_HOST_POLL_MS, remaining));
+        });
+      }
+
+      return null;
+    },
+
+    async _activateModernFilePath(filePath) {
+      if (!editorAdapter || !filePath) return null;
+
+      const tab = this._getOpenFileTabs().find((candidate) => (
+        candidate.paths.some((candidatePath) => editorAdapter.sameFilePath(candidatePath, filePath))
+      ));
+      if (!tab) return null;
+
+      const mountedHost = this._getMountedModernHost(filePath);
+      if (mountedHost && this._getCM6View(mountedHost) && tab.active) return mountedHost;
+
+      tab.element.click?.();
+      const activatedHost = await this._waitForMountedModernHost(filePath);
+
+      if (!activatedHost) {
+        console.warn('[Chrome Code] CodePen 2.0 tab activation timed out', {
+          requestedFile: filePath,
+          activeFile: this._getActiveModernFilePath(),
+          mountedFiles: this._getModernCandidates().map((candidate) => candidate.paths)
+        });
+      }
+
+      return activatedHost;
+    },
+
+    async _activateModernEditorType(editorType) {
+      if (!editorAdapter) return null;
+
+      const tab = editorAdapter.selectEditorCandidate(
+        this._getOpenFileTabs(),
+        editorType,
+        ''
+      );
+      if (!tab) return null;
+
+      const filePath = editorAdapter.selectPrimaryFilePath(tab.paths, editorType);
+      if (!filePath) return null;
+
+      const box = await this._activateModernFilePath(filePath);
+      return box ? { box, filePath } : null;
     },
 
     _getBox(editorType) {
@@ -148,24 +285,32 @@ if (window.top !== window) {
       if (!box) return null;
       const editorElement = box.matches?.('.cm-editor')
         ? box
-        : box.querySelector?.('.cm-editor');
+        : box.querySelector?.('.cm-editor')
+          || box.shadow?.querySelector?.('.cm-editor')
+          || box.shadowRoot?.querySelector?.('.cm-editor');
       return editorElement?.querySelector?.('.cm-content[contenteditable="true"], .cm-content') || null;
     },
 
     _getCM6View(box) {
       if (!box) return null;
 
-      const editorElement = box.matches?.('.cm-editor')
-        ? box
-        : box.querySelector?.('.cm-editor');
-      const contentElement = this._getCM6Content(box);
-      if (!editorElement || !contentElement) return null;
-
       const isEditorView = (candidate) => (
         !!candidate &&
         typeof candidate.dispatch === 'function' &&
         typeof candidate.state?.doc?.toString === 'function'
       );
+
+      // CodePen 2.0 deliberately keeps CodeMirror inside a closed Shadow DOM,
+      // but its cp-codemirror-editor host exposes the real EditorView directly.
+      if (isEditorView(box.editorView)) return box.editorView;
+
+      const editorElement = box.matches?.('.cm-editor')
+        ? box
+        : box.querySelector?.('.cm-editor')
+          || box.shadow?.querySelector?.('.cm-editor')
+          || box.shadowRoot?.querySelector?.('.cm-editor');
+      const contentElement = this._getCM6Content(box);
+      if (!editorElement || !contentElement) return null;
 
       const exposedEditorViewClasses = [
         globalThis.EditorView,
@@ -216,8 +361,7 @@ if (window.top !== window) {
       return null;
     },
 
-    getCode(editorType) {
-      const box = this._getBox(editorType);
+    _readCodeFromBox(box) {
       const cm5 = this._getCM5(box);
 
       if (cm5) return cm5.getValue();
@@ -226,6 +370,18 @@ if (window.top !== window) {
       if (cm6View) return cm6View.state.doc.toString();
 
       return null;
+    },
+
+    getCode(editorType) {
+      return this._readCodeFromBox(this._getBox(editorType));
+    },
+
+    async _readEditorCode(editorType) {
+      const mountedCode = this.getCode(editorType);
+      if (typeof mountedCode === 'string') return mountedCode;
+
+      const activated = await this._activateModernEditorType(editorType);
+      return activated ? this._readCodeFromBox(activated.box) : null;
     },
 
     _highlightCM5Lines(cm5, changedLines) {
@@ -273,7 +429,8 @@ if (window.top !== window) {
     async setCode(editorType, code, changedLines = []) {
       if (!this._isEditorType(editorType) || typeof code !== 'string') return false;
 
-      const box = this._getBox(editorType);
+      const originalFilePath = this._getActiveModernFilePath();
+      let box = this._getBox(editorType);
       const cm5 = this._getCM5(box);
 
       if (cm5) {
@@ -283,9 +440,18 @@ if (window.top !== window) {
         return true;
       }
 
-      const cm6View = this._getCM6View(box);
-      if (cm6View) {
-        try {
+      let activatedFilePath = '';
+      if (!this._getCM6View(box)) {
+        const activated = await this._activateModernEditorType(editorType);
+        box = activated?.box || box;
+        activatedFilePath = activated?.filePath || '';
+      }
+
+      let updated = false;
+
+      try {
+        const cm6View = this._getCM6View(box);
+        if (cm6View) {
           cm6View.dispatch({
             changes: {
               from: 0,
@@ -294,57 +460,91 @@ if (window.top !== window) {
             }
           });
 
-          if (cm6View.state.doc.toString() === code) return true;
-        } catch (error) {
-          console.warn('[Chrome Code] CodeMirror 6 dispatch failed', editorType, error);
+          updated = cm6View.state.doc.toString() === code;
+        }
+
+        // Compatibility fallback for a CM6 build whose EditorView is not
+        // discoverable. execCommand still creates a genuine contenteditable
+        // edit event; success is accepted only after CodeMirror state confirms it.
+        if (!updated) {
+          const cm6Content = this._getCM6Content(box);
+          if (cm6Content && typeof document.execCommand === 'function') {
+            cm6Content.focus();
+
+            const selection = window.getSelection?.();
+            if (selection && typeof document.createRange === 'function') {
+              const range = document.createRange();
+              range.selectNodeContents(cm6Content);
+              selection.removeAllRanges();
+              selection.addRange(range);
+            } else {
+              document.execCommand('selectAll');
+            }
+
+            const didEdit = code
+              ? document.execCommand('insertText', false, code)
+              : document.execCommand('delete');
+
+            await this._waitForEditorSync();
+            updated = didEdit && this._readCodeFromBox(box) === code;
+          }
+        }
+      } catch (error) {
+        console.warn('[Chrome Code] CodeMirror 6 dispatch failed', editorType, error);
+      } finally {
+        if (
+          originalFilePath &&
+          activatedFilePath &&
+          !editorAdapter?.sameFilePath(originalFilePath, activatedFilePath)
+        ) {
+          await this._activateModernFilePath(originalFilePath);
         }
       }
 
-      // Compatibility fallback for a CM6 build whose EditorView is not
-      // discoverable. execCommand still creates a genuine contenteditable
-      // edit event; success is accepted only after CodeMirror state confirms it.
-      const cm6Content = this._getCM6Content(box);
-      if (cm6Content && typeof document.execCommand === 'function') {
-        cm6Content.focus();
-
-        const selection = window.getSelection?.();
-        if (selection && typeof document.createRange === 'function') {
-          const range = document.createRange();
-          range.selectNodeContents(cm6Content);
-          selection.removeAllRanges();
-          selection.addRange(range);
-        } else {
-          document.execCommand('selectAll');
-        }
-
-        const didEdit = code
-          ? document.execCommand('insertText', false, code)
-          : document.execCommand('delete');
-
-        await this._waitForEditorSync();
-        if (didEdit && this.getCode(editorType) === code) return true;
-      }
+      if (updated) return true;
 
       console.error('[Chrome Code] editor update rejected', {
         editorType,
-        currentFile: editorAdapter?.getCurrentFilePath(location.href) || '',
+        currentFile: this._getActiveModernFilePath() ||
+          editorAdapter?.getCurrentFilePath(location.href) || '',
         candidates: this._getModernCandidates().map((candidate) => candidate.paths)
       });
       return false;
     },
 
-    getAllCode() {
-      const code = {
-        html: this.getCode('html'),
-        css: this.getCode('css'),
-        js: this.getCode('js')
-      };
+    async getAllCode() {
+      const originalFilePath = this._getActiveModernFilePath();
+      const code = {};
 
-      if (Object.values(code).some((value) => typeof value !== 'string')) return null;
+      try {
+        for (const editorType of EDITOR_TYPES) {
+          code[editorType] = await this._readEditorCode(editorType);
+          if (typeof code[editorType] !== 'string') {
+            throw new Error(`Impossible de lire l’éditeur ${editorType.toUpperCase()} de CodePen 2.0`);
+          }
+        }
+      } finally {
+        if (originalFilePath) {
+          await this._activateModernFilePath(originalFilePath);
+        }
+      }
+
       return code;
     },
 
     checkEditorsReady() {
+      const openFileTabs = this._getOpenFileTabs();
+      if (openFileTabs.length > 0) {
+        const hasPrimaryFiles = EDITOR_TYPES.every((editorType) => (
+          !!editorAdapter?.selectEditorCandidate(openFileTabs, editorType, '')
+        ));
+        const hasMountedEditor = this._getModernCandidates().some((candidate) => (
+          !!this._getCM6View(candidate.element)
+        ));
+
+        return hasPrimaryFiles && hasMountedEditor;
+      }
+
       return EDITOR_TYPES.every((editorType) => {
         const box = this._getBox(editorType);
         return !!this._getCM5(box) || !!this._getCM6View(box);
@@ -373,16 +573,20 @@ if (window.top !== window) {
           response.result = API.checkEditorsReady();
           break;
         case 'getCode':
-          response.result = API.getCode(message.editorType);
+          response.result = await API._runEditorOperation(
+            () => API._readEditorCode(message.editorType)
+          );
           break;
         case 'getAllCode':
-          response.result = API.getAllCode();
+          response.result = await API._runEditorOperation(() => API.getAllCode());
           break;
         case 'setCode':
-          response.result = await API.setCode(
-            message.editorType,
-            message.code,
-            message.changedLines
+          response.result = await API._runEditorOperation(
+            () => API.setCode(
+              message.editorType,
+              message.code,
+              message.changedLines
+            )
           );
           break;
         case 'getConsoleErrors':
@@ -391,6 +595,7 @@ if (window.top !== window) {
       }
     } catch (error) {
       console.error('[Chrome Code] bridge action failed', message.action, error);
+      response.error = error instanceof Error ? error.message : String(error);
       response.result = message.action === 'getAllCode' ? null : false;
     }
 

@@ -19,22 +19,33 @@ if (window.top !== window) {
     if (pending) {
       clearTimeout(pending.timeoutId);
       pendingMessages.delete(message.id);
-      pending.resolve(message.result);
+      if (message.error) {
+        pending.reject(new Error(message.error));
+      } else {
+        pending.resolve(message.result);
+      }
     }
   });
 
+  const MAIN_WORLD_TIMEOUTS = {
+    checkReady: 2000,
+    getAllCode: 18000,
+    setCode: 12000,
+    getConsoleErrors: 1500
+  };
+
   function sendToMainWorld(action, data = {}) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const id = messageId++;
       const timeoutId = setTimeout(() => {
         const pending = pendingMessages.get(id);
         if (pending) {
           pendingMessages.delete(id);
-          pending.resolve(null);
+          pending.reject(new Error(`Le pont CodePen n’a pas répondu à l’action ${action}`));
         }
-      }, 3000);
+      }, MAIN_WORLD_TIMEOUTS[action] || 3000);
 
-      pendingMessages.set(id, { resolve, timeoutId });
+      pendingMessages.set(id, { resolve, reject, timeoutId });
 
       window.postMessage({
         source: 'chrome-code-content',
