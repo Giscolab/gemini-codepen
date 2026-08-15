@@ -173,6 +173,8 @@ function initConnection() {
 
   backgroundPort = chrome.runtime.connect({ name: 'devtools-panel' });
   isPortConnected = true;
+  statusElement.textContent = 'Connexion à CodePen…';
+  statusElement.className = 'status-disconnected';
 
   if (agent) agent.setBackgroundPort(backgroundPort);
 
@@ -209,7 +211,10 @@ function initConnection() {
   });
 
   setTimeout(() => {
-    refreshCode().catch(() => updateStatus(false));
+    refreshCode().catch((error) => {
+      updateStatus(false);
+      addSystemMessage('Connexion CodePen impossible : ' + error.message);
+    });
   }, 1000);
 }
 
@@ -956,12 +961,3 @@ initialize().catch((error) => {
   addSystemMessage('Error: ' + error.message);
   updateStatus(false);
 });
-
-// Check connection status after a delay and show appropriate message
-setTimeout(() => {
-  const isConnected = statusElement.classList.contains('status-connected');
-  if (!isConnected) {
-    addSystemMessage('Make sure you are on a CodePen editor page (codepen.io/pen/).');
-    addSystemMessage('If status shows "Not connected", check the Console for debugging info.');
-  }
-}, 1500);
