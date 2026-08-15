@@ -679,8 +679,21 @@ async function sendMessage() {
       content: message
     });
 
-    // Call AI provider API
-    const response = await agent.sendMessage(systemPrompt, conversationHistory);
+    // Call the provider once, then allow one strict protocol-repair attempt if
+    // Edit mode produced no block that can be applied to an enabled scope.
+    let response = await agent.sendMessage(systemPrompt, conversationHistory);
+    let updateBlocks = UpdateParser.extractUpdateBlocks(response);
+
+    if (EditProtocol.needsRepair(assistantMode, scopes, updateBlocks)) {
+      addSystemMessage('Réponse non applicable reçue : correction automatique du format…');
+
+      response = await agent.sendMessage(systemPrompt, [
+        ...conversationHistory,
+        { role: 'assistant', content: response },
+        { role: 'user', content: EditProtocol.buildRepairMessage(scopes) }
+      ]);
+      updateBlocks = UpdateParser.extractUpdateBlocks(response);
+    }
 
     // Remove thinking indicator
     thinkingMessage.remove();
@@ -695,13 +708,7 @@ async function sendMessage() {
       content: responseWithoutCode || 'Code updated.'
     });
 
-    const updateBlocks = UpdateParser.extractUpdateBlocks(response);
-    const enabledMarkers = new Set(
-      Object.entries(scopes)
-        .filter(([, enabled]) => enabled)
-        .map(([scope]) => `UPDATE_${scope.toUpperCase()}`)
-    );
-    const applicableUpdateBlocks = updateBlocks.filter((block) => enabledMarkers.has(block.marker));
+    const applicableUpdateBlocks = EditProtocol.getApplicableBlocks(updateBlocks, scopes);
 
     if (updateBlocks.length === 0) {
       if (assistantMode === 'edit') {

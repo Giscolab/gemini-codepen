@@ -118,3 +118,39 @@ test('non-JSON provider failures remain readable and correlated', async () => {
   assert.equal(port.messages[0].requestId, 'model-1');
   assert.match(port.messages[0].error, /upstream gateway unavailable/);
 });
+
+test('Gemini receives the system instruction, conversation and deterministic edit settings', async () => {
+  let requestUrl;
+  let requestBody;
+  const port = loadBackground({
+    fetchImpl: async (url, options) => {
+      requestUrl = url;
+      requestBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: '[UPDATE_HTML]ok[/UPDATE_HTML]' }] } }]
+        })
+      };
+    }
+  });
+
+  await port.onMessage.emit({
+    type: 'CALL_MODEL',
+    requestId: 'gemini-1',
+    model: 'gemini-free',
+    apiKey: 'test-key',
+    systemPrompt: 'strict edit protocol',
+    messages: [{ role: 'user', content: 'add a heading' }]
+  });
+
+  assert.match(requestUrl, /models\/gemini-2\.5-flash:generateContent/);
+  assert.equal(requestBody.systemInstruction.parts[0].text, 'strict edit protocol');
+  assert.deepEqual(requestBody.contents, [{
+    role: 'user',
+    parts: [{ text: 'add a heading' }]
+  }]);
+  assert.equal(requestBody.generationConfig.temperature, 0.1);
+  assert.equal(port.messages[0].type, 'MODEL_RESPONSE');
+  assert.equal(port.messages[0].requestId, 'gemini-1');
+});
