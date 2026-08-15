@@ -35,6 +35,7 @@ let refactorOnly = false;
 let selectedModel = '';
 let isRequestInFlight = false;
 let requestSequence = 0;
+let refreshCodePromise = null;
 
 // Provider configuration
 const MODEL_CONFIG = {
@@ -414,20 +415,32 @@ function updateStatus(connected) {
 
 // Request code from CodePen and wait for the matching response.
 async function refreshCode() {
-  const message = await requestBackground('GET_CODE', 'CODE_DATA', { tabId }, 15000);
-  const code = message?.data?.code;
+  if (refreshCodePromise) return refreshCodePromise;
 
-  if (!code || typeof code !== 'object') {
-    throw new Error('Invalid code payload received from CodePen');
+  const pendingRefresh = (async () => {
+    const message = await requestBackground('GET_CODE', 'CODE_DATA', { tabId }, 20000);
+    const code = message?.data?.code;
+
+    if (!code || typeof code !== 'object') {
+      throw new Error('Invalid code payload received from CodePen');
+    }
+
+    currentCode = {
+      html: typeof code.html === 'string' ? code.html : '',
+      css: typeof code.css === 'string' ? code.css : '',
+      js: typeof code.js === 'string' ? code.js : ''
+    };
+    updateStatus(true);
+    return currentCode;
+  })();
+
+  refreshCodePromise = pendingRefresh;
+
+  try {
+    return await pendingRefresh;
+  } finally {
+    if (refreshCodePromise === pendingRefresh) refreshCodePromise = null;
   }
-
-  currentCode = {
-    html: typeof code.html === 'string' ? code.html : '',
-    css: typeof code.css === 'string' ? code.css : '',
-    js: typeof code.js === 'string' ? code.js : ''
-  };
-  updateStatus(true);
-  return currentCode;
 }
 
 // Add message to chat
@@ -717,7 +730,7 @@ async function sendMessage() {
 
   } catch (error) {
     addSystemMessage('Error: ' + error.message);
-    console.error('Error calling AI provider:', error);
+    console.error('Chrome Code request failed:', error);
   } finally {
     thinkingMessage.remove();
     isRequestInFlight = false;

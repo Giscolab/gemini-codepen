@@ -9,6 +9,8 @@ if (window.top !== window) {
   const EDITOR_TYPES = ['html', 'css', 'js'];
   const CODEPEN_EDITOR_HOST_SELECTOR = 'cp-codemirror-editor';
   const OPEN_FILE_TAB_SELECTOR = '[role="button"][data-file]';
+  const MODERN_HOST_TIMEOUT_MS = 4000;
+  const MODERN_HOST_POLL_MS = 25;
   const FILE_METADATA_ATTRIBUTES = [
     'data-file',
     'data-file-path',
@@ -33,6 +35,14 @@ if (window.top !== window) {
   });
 
   const API = {
+    _editorOperationTail: Promise.resolve(),
+
+    _runEditorOperation(operation) {
+      const queuedOperation = this._editorOperationTail.then(operation, operation);
+      this._editorOperationTail = queuedOperation.catch(() => undefined);
+      return queuedOperation;
+    },
+
     _isEditorType(editorType) {
       return EDITOR_TYPES.includes(editorType);
     },
@@ -186,19 +196,20 @@ if (window.top !== window) {
       return matchingCandidates.length === 1 ? matchingCandidates[0].element : null;
     },
 
-    async _waitForMountedModernHost(filePath, timeout = 2000) {
-      const startedAt = Date.now();
+    async _waitForMountedModernHost(filePath, timeout = MODERN_HOST_TIMEOUT_MS) {
+      const deadline = Date.now() + timeout;
 
-      while (Date.now() - startedAt < timeout) {
+      while (Date.now() < deadline) {
         const host = this._getMountedModernHost(filePath);
-        if (host && this._getCM6View(host)) return host;
+        const activeTab = this._getOpenFileTabs().find((candidate) => (
+          candidate.paths.some((candidatePath) => editorAdapter.sameFilePath(candidatePath, filePath))
+        ));
+
+        if (host && this._getCM6View(host) && activeTab?.active) return host;
 
         await new Promise((resolve) => {
-          if (typeof requestAnimationFrame === 'function') {
-            requestAnimationFrame(resolve);
-          } else {
-            setTimeout(resolve, 16);
-          }
+          const remaining = Math.max(0, deadline - Date.now());
+          setTimeout(resolve, Math.min(MODERN_HOST_POLL_MS, remaining));
         });
       }
 
@@ -214,10 +225,20 @@ if (window.top !== window) {
       if (!tab) return null;
 
       const mountedHost = this._getMountedModernHost(filePath);
-      if (mountedHost && this._getCM6View(mountedHost)) return mountedHost;
+      if (mountedHost && this._getCM6View(mountedHost) && tab.active) return mountedHost;
 
       tab.element.click?.();
-      return this._waitForMountedModernHost(filePath);
+      const activatedHost = await this._waitForMountedModernHost(filePath);
+
+      if (!activatedHost) {
+        console.warn('[Chrome Code] CodePen 2.0 tab activation timed out', {
+          requestedFile: filePath,
+          activeFile: this._getActiveModernFilePath(),
+          mountedFiles: this._getModernCandidates().map((candidate) => candidate.paths)
+        });
+      }
+
+      return activatedHost;
     },
 
     async _activateModernEditorType(editorType) {
@@ -498,6 +519,9 @@ if (window.top !== window) {
       try {
         for (const editorType of EDITOR_TYPES) {
           code[editorType] = await this._readEditorCode(editorType);
+          if (typeof code[editorType] !== 'string') {
+            throw new Error(`Impossible de lire l’éditeur ${editorType.toUpperCase()} de CodePen 2.0`);
+          }
         }
       } finally {
         if (originalFilePath) {
@@ -505,7 +529,6 @@ if (window.top !== window) {
         }
       }
 
-      if (Object.values(code).some((value) => typeof value !== 'string')) return null;
       return code;
     },
 
@@ -550,16 +573,20 @@ if (window.top !== window) {
           response.result = API.checkEditorsReady();
           break;
         case 'getCode':
-          response.result = await API._readEditorCode(message.editorType);
+          response.result = await API._runEditorOperation(
+            () => API._readEditorCode(message.editorType)
+          );
           break;
         case 'getAllCode':
-          response.result = await API.getAllCode();
+          response.result = await API._runEditorOperation(() => API.getAllCode());
           break;
         case 'setCode':
-          response.result = await API.setCode(
-            message.editorType,
-            message.code,
-            message.changedLines
+          response.result = await API._runEditorOperation(
+            () => API.setCode(
+              message.editorType,
+              message.code,
+              message.changedLines
+            )
           );
           break;
         case 'getConsoleErrors':
@@ -568,6 +595,7 @@ if (window.top !== window) {
       }
     } catch (error) {
       console.error('[Chrome Code] bridge action failed', message.action, error);
+      response.error = error instanceof Error ? error.message : String(error);
       response.result = message.action === 'getAllCode' ? null : false;
     }
 

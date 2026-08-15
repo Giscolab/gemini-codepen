@@ -172,13 +172,14 @@ function loadBridge({ classicBoxes = false } = {}) {
   };
 }
 
-function loadLazyCodePen2Bridge() {
+function loadLazyCodePen2Bridge({ pausedAnimationFrame = false, switchDelay = 0 } = {}) {
   const documents = {
     'index.html': '<main>Before</main>',
     'style.css': 'body { color: red; }',
     'script.js': 'console.log("before");'
   };
   let activePath = 'index.html';
+  let messageId = 8;
   const listeners = new Map();
   const postedMessages = [];
 
@@ -226,7 +227,13 @@ function loadLazyCodePen2Bridge() {
 
   const tabs = Object.keys(documents).map((filePath, index) => ({
     click() {
-      activePath = filePath;
+      if (switchDelay > 0) {
+        setTimeout(() => {
+          activePath = filePath;
+        }, switchDelay);
+      } else {
+        activePath = filePath;
+      }
     },
     getAttribute(attribute) {
       if (attribute === 'data-file') return `file-${index}`;
@@ -283,7 +290,7 @@ function loadLazyCodePen2Bridge() {
       href: 'https://codepen.io/editor/user/pen/id'
     },
     requestAnimationFrame(callback) {
-      callback();
+      if (!pausedAnimationFrame) callback();
     },
     setTimeout,
     window
@@ -303,17 +310,17 @@ function loadLazyCodePen2Bridge() {
     documents,
     getActivePath: () => activePath,
     async send(action, data = {}) {
-      postedMessages.length = 0;
+      const id = messageId++;
       await messageListener({
         source: window,
         data: {
           source: 'chrome-code-content',
-          id: 8,
+          id,
           action,
           ...data
         }
       });
-      return postedMessages.at(-1);
+      return postedMessages.find((message) => message.id === id);
     }
   };
 }
@@ -379,5 +386,42 @@ test('switches to the target CodePen 2.0 tab, dispatches, then restores the tab'
 
   assert.equal(response.result, true);
   assert.equal(bridge.documents['script.js'], 'console.log("injected");');
+  assert.equal(bridge.getActivePath(), 'index.html');
+});
+
+test('reads CodePen 2.0 while requestAnimationFrame is suspended', async () => {
+  const bridge = loadLazyCodePen2Bridge({
+    pausedAnimationFrame: true,
+    switchDelay: 5
+  });
+
+  const response = await bridge.send('getAllCode');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(response.result)), {
+    html: '<main>Before</main>',
+    css: 'body { color: red; }',
+    js: 'console.log("before");'
+  });
+  assert.equal(bridge.getActivePath(), 'index.html');
+});
+
+test('serializes a read and an update that both switch CodePen 2.0 tabs', async () => {
+  const bridge = loadLazyCodePen2Bridge({ switchDelay: 5 });
+
+  const readPromise = bridge.send('getAllCode');
+  const updatePromise = bridge.send('setCode', {
+    editorType: 'js',
+    code: 'console.log("serialized");',
+    changedLines: [0]
+  });
+  const [readResponse, updateResponse] = await Promise.all([readPromise, updatePromise]);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(readResponse.result)), {
+    html: '<main>Before</main>',
+    css: 'body { color: red; }',
+    js: 'console.log("before");'
+  });
+  assert.equal(updateResponse.result, true);
+  assert.equal(bridge.documents['script.js'], 'console.log("serialized");');
   assert.equal(bridge.getActivePath(), 'index.html');
 });
