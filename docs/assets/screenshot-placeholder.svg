@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1919 922">
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#eef2f7"/><stop offset="1" stop-color="#d7dee8"/></linearGradient></defs>
+  <rect width="1919" height="922" fill="url(#bg)"/>
+  <rect x="60" y="58" width="1799" height="806" rx="24" fill="#e0e5ec" stroke="#c0cad6" stroke-width="3"/>
+  <rect x="96" y="96" width="420" height="730" rx="18" fill="#d1d9e6"/>
+  <rect x="552" y="96" width="1270" height="118" rx="18" fill="#e8edf3"/>
+  <rect x="552" y="250" width="1270" height="410" rx="18" fill="#eef2f6"/>
+  <rect x="552" y="696" width="1270" height="130" rx="18" fill="#e8edf3"/>
+  <circle cx="130" cy="130" r="12" fill="#4ec9b0"/>
+  <text x="160" y="140" fill="#2e3a45" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="700">Chrome Code · CodePen 2.0</text>
+  <text x="960" y="470" fill="#6b7a8a" font-family="Segoe UI,Arial,sans-serif" font-size="34" text-anchor="middle">Copiez screenshot.jpg dans docs/assets pour afficher la capture réelle</text>
+  <text x="960" y="520" fill="#4a9eff" font-family="Segoe UI,Arial,sans-serif" font-size="26" text-anchor="middle">Ratio natif conservé : 1919 × 922</text>
+</svg>

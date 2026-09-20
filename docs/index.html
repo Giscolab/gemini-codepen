@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#09111a">
+  <meta name="color-scheme" content="dark light">
+  <title>Gemini CodePen 2.0 — Assistant IA dans les DevTools</title>
+  <meta name="description" content="Extension Chrome et Edge pour lire, expliquer et modifier HTML, CSS et JavaScript directement dans CodePen 2.0 depuis les DevTools.">
+  <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Aller au contenu</a>
+
+  <header class="topbar" id="top">
+    <div class="shell topbar-inner">
+      <a class="brand" href="#top" aria-label="Gemini CodePen 2.0 — accueil">
+        <img src="./assets/icon.svg" alt="" width="38" height="38">
+        <span><strong>Gemini CodePen</strong><small>DevTools AI assistant</small></span>
+      </a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="nav">Menu</button>
+      <nav id="nav" class="nav" aria-label="Navigation principale">
+        <a href="#features">Fonctions</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#providers">Modèles</a>
+        <a href="#security">Sécurité</a>
+        <a href="#install">Installation</a>
+        <a class="nav-cta" href="https://github.com/Giscolab/gemini-codepen" target="_blank" rel="noreferrer">GitHub ↗</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="shell hero-grid">
+        <div class="hero-copy reveal">
+          <div class="kicker"><span class="status-dot"></span> Extension Chrome / Edge · Manifest V3</div>
+          <h1>Coder dans CodePen.<br><span>Avec l’IA dans les DevTools.</span></h1>
+          <p class="hero-lead">Gemini CodePen 2.0 lit, explique et modifie directement les fichiers <strong>HTML</strong>, <strong>CSS</strong> et <strong>JavaScript</strong> d’un Pen dans le nouvel éditeur CodePen 2.0 basé sur CodeMirror 6.</p>
+          <div class="hero-actions">
+            <a class="button primary" href="https://github.com/Giscolab/gemini-codepen/archive/refs/heads/main.zip">Télécharger l’extension</a>
+            <a class="button secondary" href="#install">Voir l’installation</a>
+          </div>
+          <div class="hero-meta" aria-label="Caractéristiques principales">
+            <span>CodePen 2.0</span><span>CodeMirror 6</span><span>Edit / Explain</span><span>MIT</span>
+          </div>
+        </div>
+
+        <div class="product-shot reveal">
+          <div class="window-bar"><span></span><span></span><span></span><strong>Chrome DevTools · Chrome Code</strong></div>
+          <div class="shot-frame">
+            <img
+              id="projectShot"
+              src="./assets/screenshot.jpg"
+              data-placeholder="./assets/screenshot-placeholder.svg"
+              data-remote="https://raw.githubusercontent.com/Giscolab/gemini-codepen/main/screenshot.jpg"
+              alt="Interface de l’extension Chrome Code dans les DevTools avec CodePen 2.0"
+              width="1919"
+              height="922"
+            >
+          </div>
+          <p class="shot-note">Capture réelle du projet · affichage au ratio natif 1919 × 922</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section light-section" id="features">
+      <div class="shell">
+        <div class="section-head reveal">
+          <p class="eyebrow">Fonctions principales</p>
+          <h2>Lire le code. Comprendre. Modifier sans quitter l’éditeur.</h2>
+          <p>L’extension s’intègre comme un panneau DevTools et communique avec les éditeurs CodeMirror 6 de CodePen. Le mode d’édition reste volontairement contrôlé.</p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature-card reveal"><span class="feature-number">01</span><h3>Lire le Pen</h3><p>Récupération du contenu courant de <code>index.html</code>, <code>style.css</code> et <code>script.js</code> directement dans CodePen 2.0.</p></article>
+          <article class="feature-card reveal"><span class="feature-number">02</span><h3>Explain</h3><p>Le mode Explain demande une analyse sans autoriser l’écriture dans les éditeurs.</p></article>
+          <article class="feature-card reveal"><span class="feature-number">03</span><h3>Edit</h3><p>Le mode Edit peut appliquer des modifications seulement dans les scopes HTML, CSS et JS explicitement cochés.</p></article>
+          <article class="feature-card reveal"><span class="feature-number">04</span><h3>Diff avant confiance</h3><p>Les changements proposés sont présentés sous forme de diff afin de permettre une vérification avant sauvegarde du Pen.</p></article>
+          <article class="feature-card reveal"><span class="feature-number">05</span><h3>Remplacements exacts</h3><p>Le moteur refuse un remplacement ambigu ou introuvable au lieu d’écrire à l’aveugle dans le code existant.</p></article>
+          <article class="feature-card reveal"><span class="feature-number">06</span><h3>Clés locales</h3><p>Les clés API sont enregistrées dans <code>chrome.storage.local</code> et les appels cloud partent du service worker.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section dark-section" id="workflow">
+      <div class="shell two-col">
+        <div class="section-head reveal">
+          <p class="eyebrow">Workflow</p>
+          <h2>Une boucle courte entre intention et code.</h2>
+          <p>Le panneau DevTools reste le centre du flux : on choisit le mode, les fichiers autorisés et le fournisseur IA avant l’envoi.</p>
+        </div>
+
+        <ol class="steps reveal">
+          <li><span>1</span><div><strong>Connecter CodePen</strong><p>Ouvrir le Pen, ses trois onglets de code puis l’onglet <em>Chrome Code</em> dans les DevTools.</p></div></li>
+          <li><span>2</span><div><strong>Définir le périmètre</strong><p>Choisir Edit ou Explain, puis limiter l’action à HTML, CSS et/ou JS.</p></div></li>
+          <li><span>3</span><div><strong>Vérifier le résultat</strong><p>Lire la réponse, inspecter le diff et contrôler le rendu CodePen avant de sauvegarder.</p></div></li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section providers-section" id="providers">
+      <div class="shell">
+        <div class="section-head reveal">
+          <p class="eyebrow">Fournisseurs IA</p>
+          <h2>Gemini d’abord, catalogue multi-modèles autour.</h2>
+          <p>Le dépôt contient une couche de fournisseurs plus large que son nom : modèles gratuits, APIs payantes et compatibilités locales selon la configuration disponible.</p>
+        </div>
+
+        <div class="provider-layout">
+          <div class="provider-panel free reveal">
+            <div class="provider-title"><span>●</span><div><strong>Gratuit / Open</strong><small>Selon quotas et disponibilité des fournisseurs</small></div></div>
+            <div class="chips"><span>Chrome AI / Gemini Nano</span><span>Gemini Free</span><span>Qwen 2.5 Coder</span><span>DeepSeek Coder</span><span>DeepSeek V3.2</span><span>Mistral Small</span><span>Groq LLaMA</span></div>
+          </div>
+          <div class="provider-panel paid reveal">
+            <div class="provider-title"><span>●</span><div><strong>API payantes</strong><small>Clé propre à chaque fournisseur</small></div></div>
+            <div class="chips"><span>OpenAI</span><span>Anthropic</span><span>Gemini Pro</span><span>Mistral</span><span>Perplexity</span><span>xAI / Grok</span><span>Together.ai</span><span>OpenRouter</span></div>
+          </div>
+        </div>
+        <p class="fine-print reveal">Les modèles et endpoints évoluent : la liste de référence reste <code>background.js</code> et <code>panel.js</code> dans le dépôt.</p>
+      </div>
+    </section>
+
+    <section class="section architecture-section" id="architecture">
+      <div class="shell">
+        <div class="section-head reveal">
+          <p class="eyebrow">Architecture</p>
+          <h2>Le code du Pen reste séparé des privilèges de l’extension.</h2>
+        </div>
+
+        <div class="architecture reveal" aria-label="Architecture logique de l’extension">
+          <div class="arch-node accent"><strong>DevTools Panel</strong><span>UI · mode · scopes · diff</span></div>
+          <div class="arch-arrow" aria-hidden="true">→</div>
+          <div class="arch-node"><strong>content.js</strong><span>pont de messages</span></div>
+          <div class="arch-arrow" aria-hidden="true">→</div>
+          <div class="arch-node"><strong>inject.js + adapter</strong><span>CodeMirror 6 / CodePen</span></div>
+          <div class="arch-arrow" aria-hidden="true">→</div>
+          <div class="arch-node codepen"><strong>HTML · CSS · JS</strong><span>éditeurs du Pen</span></div>
+          <div class="arch-branch" aria-hidden="true"></div>
+          <div class="arch-node worker"><strong>background.js</strong><span>service worker · clés · appels API</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section security-section" id="security">
+      <div class="shell security-grid">
+        <div class="section-head reveal">
+          <p class="eyebrow">Sécurité</p>
+          <h2>Des garde-fous explicites.</h2>
+          <p>La sécurité documentée du projet se concentre sur le stockage des clés, l’isolation des contextes et le nettoyage du contenu rendu.</p>
+          <a class="text-link" href="https://github.com/Giscolab/gemini-codepen/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Lire SECURITY.md ↗</a>
+        </div>
+        <div class="security-list">
+          <article class="reveal"><strong>01 · API keys</strong><p>Stockage local via <code>chrome.storage.local</code>. Les appels cloud sont exécutés depuis le service worker.</p></article>
+          <article class="reveal"><strong>02 · Markdown / XSS</strong><p>Le Markdown est rendu avec <code>marked</code>, puis netto{3� avec <code>DOMPurify</code> avant insertion dans l’interface.</p></article>
+          <article class="reveal"><strong>03 · Contextes</strong><p>Les messages entre page, content script et code injecté sont filtrés selon leur source et leur structure attendue.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section install-section" id="install">
+      <div class="shell install-grid">
+        <div class="install-copy reveal">
+          <p class="eyebrow">Installation locale</p>
+          <h2>Installer l’extension en quelques minutes.</h2>
+          <p>Chrome Web Store n’est pas nécessaire : le dépôt se charge directement comme extension non empaquetée.</p>
+          <a class="button primary" href="https://github.com/Giscolab/gemini-codepen/archive/refs/heads/main.zip">Download ZIP</a>
+        </div>
+        <ol class="install-steps reveal">
+          <li><span>01</span><p>Télécharger le ZIP GitHub et extraire complètement le dossier.</p></li>
+          <li><span>02</span><p>Ouvrir <code>chrome://extensions</code> ou <code>edge://extensions</code>.</p></li>
+          <li><span>03</span><p>Activer le <strong>Mode développeur</strong>.</p></li>
+          <li><span>04</span><p>Choisir <strong>Charger l’extension non empaquetée</strong>.</p></li>
+          <li><span>05</span><p>Sélectionner le dossier qui contient <code>manifest.json</code>.</p></li>
+          <li><span>06</span><p>Ouvrir CodePen 2.0 puis l’onglet <strong>Chrome Code</strong> dans les DevTools.</p></li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section credits-section">
+      <div class="shell credits reveal">
+        <img src="./assets/icon.svg" alt="" width="72" height="72">
+        <div><p class="eyebrow">Open source · MIT</p><h2>Un fork adapté au nouvel éditeur CodePen.</h2><p>Gemini CodePen 2.0 est basé sur <a href="https://github.com/mrdoob/chromecode" target="_blank" rel="noreferrer">Chrome Code</a> de Mr.doob. Les adaptations de ce dépôt ciblent notamment CodePen 2.0 et son intégration CodeMirror 6.</p></div>
+        <a class="button secondary" href="https://github.com/Giscolab/gemini-codepen" target="_blank" rel="noreferrer">Voir le code source ↗</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="shell footer-inner"><span>Gemini CodePen 2.0 · Giscolab</span><span>Chrome / Edge · CodePen 2.0 · MIT</span></div>
+  </footer>
+
+  <script src="./site.js" defer></script>
+</body>
+</html>
